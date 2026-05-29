@@ -215,7 +215,7 @@ if IS_STREAMLIT:
                 .hisse-satiri { 
                     display: flex; 
                     justify-content: space-between; 
-                    align-items: center; 
+                    align-items: left; 
                     padding: 10px; 
                     border-bottom: 1px solid #2D2D2D; 
                 }
