@@ -215,7 +215,7 @@ if IS_STREAMLIT:
                     c1, c2, c3 = st.columns([2, 2, 1])
                     
                     # Fiyat ve Delta bilgisi
-                    c1.metric(label=f"{h} ({status})", value=f"{fiyat:.2f} TL" if fiyat > 0 else "N/A", 
+                    c1.metric(label=f"{h} ({status})", value=f"{fiyat:.2f} TL" if fiyat > 0 else "--", 
                               delta=f"{degisim:+.2f}%" if fiyat > 0 else None)
                     
                     # Maliyet ve Adet bilgilerini yan yana koymak için yeni bir column yapısı
