@@ -6,7 +6,7 @@ Created on Fri May 29 15:42:45 2026
 """
 
 
-```python
+
 import os
 import sys
 import logging
@@ -498,4 +498,4 @@ if IS_STREAMLIT:
                 st.warning(
                     "Sinyal veren hisse bulunamadı"
                 )
-```
+
