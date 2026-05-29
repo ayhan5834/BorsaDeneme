@@ -5,6 +5,7 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
+
 import os
 import sys
 import logging
@@ -82,27 +83,16 @@ class Veritabani:
 # ==============================================================================
 # 2. DİNAMİK BIST LİSTESİ MOTORU (HALKA ARZLAR DAHİL)
 # ==============================================================================
-@st.cache_data(ttl=3600) # Listeyi 1 saat boyunca önbellekte tutar
+@st.cache_data(ttl=3600)
 def dinamik_bist_listesi_yukle():
     csv_yolu = "bist_hisseler.csv"
-    url = "https://raw.githubusercontent.com/atas/borsa-istanbul-hisse-listesi/main/bist_hisseler.csv"
-    
-    # 1. Adım: İnternetten çekmeyi dene
-    try:
-        # Streamlit üzerinde daha kararlı olması için timeout'u artırdık
-        df_canli = pd.read_csv(url, timeout=10) 
-        if "kod" in df_canli.columns and not df_canli.empty:
-            return df_canli["kod"].tolist()
-    except Exception as e:
-        st.warning("Canlı liste çekilemedi, yerel dosya deneniyor.")
-
-    # 2. Adım: Yerel dosya
+    # Eğer GitHub'a yüklediyseniz, sadece dosya ismini kontrol etmek yeterlidir
     if os.path.exists(csv_yolu):
-        df_yerel = pd.read_csv(csv_yolu)
-        return df_yerel["kod"].tolist()
-
-    # 3. Adım: Yedek liste (46 adet)
-    return ["A1CAP", "ADEL", "AGROT", "AKBNK", ... ] # (Diğerleri aynı)
+        df = pd.read_csv(csv_yolu)
+        return df["kod"].tolist()
+    
+    # Dosya yoksa yedek listeye dön
+    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", ...]
 
 # Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
