@@ -286,37 +286,52 @@ if IS_STREAMLIT:
     # --- 3. SEKME: MEGA RADAR TARAMASI ---
     with sekme3:
         st.subheader("🔍 Mega Radar Taraması")
-        guncel_hisse_listesi = dinamik_bist_listesi_yukle()
+        st.write("Tüm BIST hisseleri taranarak AL sinyali üretenler listelenir.")
+        
+        guncel_hisse_listesi = dinamik_bist_listesi_yukle() 
         
         if st.button("🚀 TÜM BORSAYI TARAMAYA BAŞLAT", key="mob_radar_start"):
             bulunanlar = []
             ilerleme_bari = st.progress(0)
             durum_alani = st.empty()
             
+            toplam = len(guncel_hisse_listesi)
+            
             for idx, h in enumerate(guncel_hisse_listesi):
-                durum_alani.text(f"Taranıyor: {h}")
-                ilerleme_bari.progress((idx + 1) / len(guncel_hisse_listesi))
+                durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
+                ilerleme_bari.progress((idx + 1) / toplam)
+                
                 try:
                     df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
-                    if df is None or len(df) < 20: continue
-                    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                     
-                    kapanis, hacim = df['Close'].squeeze(), df['Volume'].squeeze()
+                    if df is None or df.empty or len(df) < 20: 
+                        continue
+                    
+                    if isinstance(df.columns, pd.MultiIndex): 
+                        df.columns = df.columns.droplevel(1)
+                    
+                    kapanis = df['Close'].squeeze()
+                    
+                    # Göstergeleri Hesapla
                     son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
-                    macd_cizgisi = ta.trend.MACD(kapanis).macd().iloc[-1]
-                    macd_sinyal = ta.trend.MACD(kapanis).macd_signal().iloc[-1]
+                    macd_obj = ta.trend.MACD(kapanis)
+                    macd_cizgisi = macd_obj.macd().iloc[-1]
+                    macd_sinyal = macd_obj.macd_signal().iloc[-1]
                     
-                    # HACİM FİLTRESİ
-                    hacim_onay = hacim.iloc[-1] > (hacim.rolling(10).mean().iloc[-1] * 0.8)
-                    
-                    if (son_rsi < 42 and macd_cizgisi > macd_sinyal and hacim_onay) or (son_rsi < 30 and hacim_onay):
+                    # AL Sinyali Kontrolü
+                    if (son_rsi < 42 and macd_cizgisi > macd_sinyal) or (son_rsi < 30):
                         bulunanlar.append(h)
-                except: continue
+                        
+                except:
+                    continue
             
             durum_alani.text("Tarama tamamlandı!")
             ilerleme_bari.empty()
+            
             if bulunanlar:
-                st.success(f"✅ {len(bulunanlar)} adet hisse HACİMLİ AL sinyali üretti:")
-                for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
+                st.success(f"✅ {len(bulunanlar)} adet hisse AL sinyali üretti:")
+                # ALT ALTA LİSTELEME KISMI
+                for hisse in bulunanlar:
+                    st.markdown(f"🔹 **{hisse}**")
             else:
-                st.warning("Hacim onaylı AL sinyali veren hisse bulunamadı.")
+                st.warning("Şu an AL sinyali veren hisse bulunamadı.")
