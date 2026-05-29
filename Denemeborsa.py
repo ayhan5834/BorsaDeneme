@@ -212,7 +212,7 @@ if IS_STREAMLIT:
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
                 with st.container(border=True):
                     # Kolon oranlarını biraz değiştirdik: c1 (Fiyat/Durum), c2 (Detaylar), c3 (Sil Butonu)
-                    c1, c2, c3 = st.columns([2.5, 2.5, 1])
+                    c1, c2, c3 = st.columns([2, 2, 1])
                     
                     # Fiyat ve Delta bilgisi
                     c1.metric(label=f"{h} ({status})", value=f"{fiyat:.2f} TL" if fiyat > 0 else "N/A", 
