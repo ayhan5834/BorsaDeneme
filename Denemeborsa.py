@@ -209,40 +209,31 @@ if IS_STREAMLIT:
                 
             st.write("")
             
-             # --- CSS'İ SAKIN DÖNGÜ İÇİNE KOYMA, EN ÜSTTE BİR KEZ TANIMLA ---
-            st.markdown("""
-                <style>
-                .hisse-satiri { 
-                    display: flex; 
-                    justify-content: space-between; 
-                    align-items: left; 
-                    padding: 10px; 
-                    border-bottom: 1px solid #2D2D2D; 
-                }
-                .hisse-detay { font-size: 13px; color: #CCCCCC; }
-                </style>
-            """, unsafe_allow_html=True)
-
-            # --- PORTFÖY LİSTELEME DÖNGÜSÜ ---
+            # --- PORTFÖY LİSTELEME DÖNGÜSÜ (KESİN ÇÖZÜM) ---
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
-                with st.container(border=True):
-                    # Sütunları mobilde korumak için oranları daraltıyoruz
-                    c1, c2, c3 = st.columns([0.4, 0.5,0.5])
-                    
-                    c1.metric(label=f"{h}", value=f"{fiyat:.2f} TL" if fiyat > 0 else "--", 
-                              delta=f"{degisim:+.2f}%" if fiyat > 0 else None)
-                    
-                    # c2 içerisinde yan yana olması için markdown kullanımı
-                    c2.markdown(f"""
-                        <div class='hisse-detay'>
-                            <b>{m_metni}</b><br>
-                            Adet: {adet}
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if c3.button("🗑️Sil", key=f"del_{h}", help="Sil"):
-                        db.hisse_sil(h)
-                        st.rerun()
+               with st.container(border=True):
+                   # Sütunları eşit paylaştır
+                   c1, c2, c3 = st.columns([1.5, 1.5, 1])
+                   
+                   # 1. Kolon: Hisse Kodu ve Fiyat (Metric yerine Markdown ile)
+                   c1.markdown(f"""
+                       <div style='font-size: 14px; font-weight: bold;'>{h}</div>
+                       <div style='color: #00F0FF; font-size: 16px;'>{fiyat:.2f} TL</div>
+                       <div style='color: {renk}; font-size: 12px;'>{degisim:+.2f}%</div>
+                   """, unsafe_allow_html=True)
+                   
+                   # 2. Kolon: Detaylar
+                   c2.markdown(f"""
+                       <div class='hisse-detay'>
+                           {m_metni}<br>
+                           <b>Adet:</b> {adet}
+                       </div>
+                   """, unsafe_allow_html=True)
+                   
+                   # 3. Kolon: Sil
+                   if c3.button("🗑️Sil", key=f"del_{h}"):
+                       db.hisse_sil(h)
+                       st.rerun()
                         
         if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
             st.rerun()
