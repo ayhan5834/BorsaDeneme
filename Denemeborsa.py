@@ -90,7 +90,7 @@ def dinamik_bist_listesi_yukle():
         return df["kod"].tolist()
     
     # Dosya yoksa yedek listeye dön
-    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "..."]
+    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", ...]
 
 # Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
@@ -131,7 +131,7 @@ if IS_STREAMLIT:
         .stApp { background-color: #121212; color: #FFFFFF; }
         div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
         div[data-testid="stMetricWidget"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; padding: 10px; border-radius: 10px; }
-        /* Buton rengi değişikliği */
+        /* Sadece Buton Renkleri Koyu Mavi */
         div.stButton > button { background-color: #00008B !important; color: white !important; }
         </style>
     """, unsafe_allow_html=True)
@@ -254,15 +254,15 @@ if IS_STREAMLIT:
                         genel_durum, s_renk = "TUT", "#8A8A8A"
                         
                     st.markdown(f"""
-                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 15px;'>
-                        <h2 style='margin: 0; color: white;'>{hisse_kodu}</h2>
-                        <h1 style='margin: 10px 0; color: #00F0FF;'>{son_fiyat:,.2f} TL</h1>
-                        <div style='background-color: {s_renk}; color: #121212; padding: 6px; border-radius: 8px; font-weight: bold; display: inline-block; width: 100%;'>
-                            {genel_durum}
-                        </div>
-                        <p style='margin-top: 10px; font-size: 14px; color: white;'>RSI (14): {son_rsi:.2f}</p>
-                        <p style='color: #8A8A8A; font-size: 13px;'>🚀 YZ 5 Günlük Tahmin: <b>{hedef_fiyat:.2f} TL</b> (Potansiyel: %{potansiyel_getiri:+.2f})</p>
-                    </div>
+                   <div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 15px;'>
+                       <h2 style='margin: 0; color: white;'>{hisse_kodu}</h2>
+                       <h1 style='margin: 10px 0; color: #00F0FF;'>{son_fiyat:,.2f} TL</h1>
+                       <div style='background-color: {s_renk}; color: #121212; padding: 6px; border-radius: 8px; font-weight: bold; display: inline-block; width: 100%;'>
+                           {genel_durum}
+                       </div>
+                       <p style='margin-top: 10px; font-size: 14px; color: white;'>RSI (14): {son_rsi:.2f}</p>
+                       <p style='color: #8A8A8A; font-size: 13px;'>🚀 YZ 5 Günlük Tahmin: <b>{hedef_fiyat:.2f} TL</b> (Potansiyel: %{potansiyel_getiri:+.2f})</p>
+                   </div>
                     """, unsafe_allow_html=True)
                     
                     if st.button("➕ PORTFÖYÜME / LİSTEME EKLE", key="mob_analizden_ekle"):
@@ -284,4 +284,60 @@ if IS_STREAMLIT:
                     
                     ax.tick_params(colors='white', labelsize=8)
                     ax.grid(True, color='#2D2D2D', linestyle='--')
-                    ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='
+                    ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='white')
+                    for spine in ax.spines.values(): spine.set_visible(False)
+                    fig.tight_layout()
+                    st.pyplot(fig)
+            except Exception as e:
+                st.error(f"Analiz hatası: {e}")
+
+    # --- 3. SEKME: MEGA RADAR TARAMASI (TAMAMLANMIŞ) ---
+        with sekme3:
+            st.subheader("🔍 Mega Radar Taraması")
+            st.write("Tüm BIST hisseleri taranarak AL sinyali üretenler listelenir.")
+            
+            guncel_hisse_listesi = dinamik_bist_listesi_yukle() 
+            
+            if st.button("🚀 TÜM BORSAYI TARAMAYA BAŞLAT", key="mob_radar_start"):
+                bulunanlar = []
+                ilerleme_bari = st.progress(0)
+                durum_alani = st.empty()
+                
+                toplam = len(guncel_hisse_listesi)
+                
+                for idx, h in enumerate(guncel_hisse_listesi):
+                    durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
+                    ilerleme_bari.progress((idx + 1) / toplam)
+                    
+                    try:
+                        df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
+                        
+                        if df is None or df.empty or len(df) < 20: 
+                            continue
+                        
+                        if isinstance(df.columns, pd.MultiIndex): 
+                            df.columns = df.columns.droplevel(1)
+                        
+                        kapanis = df['Close'].squeeze()
+                        
+                        # Göstergeleri Hesapla
+                        son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
+                        macd_obj = ta.trend.MACD(kapanis)
+                        macd_cizgisi = macd_obj.macd().iloc[-1]
+                        macd_sinyal = macd_obj.macd_signal().iloc[-1]
+                        
+                        # AL Sinyali Kontrolü
+                        if (son_rsi < 42 and macd_cizgisi > macd_sinyal) or (son_rsi < 30):
+                            bulunanlar.append(h)
+                            
+                    except:
+                        continue
+                
+                durum_alani.text("Tarama tamamlandı!")
+                ilerleme_bari.empty()
+                
+                if bulunanlar:
+                    st.success(f"✅ {len(bulunanlar)} adet hisse AL sinyali üretti:")
+                    st.write(", ".join(bulunanlar))
+                else:
+                    st.warning("Şu an AL sinyali veren hisse bulunamadı.")
