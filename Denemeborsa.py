@@ -254,21 +254,31 @@ if IS_STREAMLIT:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # --- YZ DESTEKLİ GRAFİK ---
+                    # --- GÜVENLİ GRAFİK ÇİZİMİ ---
                     fig, ax = plt.subplots(figsize=(6, 3.5), facecolor='#121212')
                     ax.set_facecolor('#1E1E1E')
                     
-                    # Gerçek Veri
-                    gunler = np.arange(len(kapanis.tail(30)))
-                    ax.plot(gunler, kapanis.tail(30).values, color='#00F0FF', label="Gerçek Fiyat", linewidth=2)
+                    kapanislar_son30 = kapanis.tail(30)
+                    gunler = np.arange(len(kapanislar_son30))
                     
-                    # YZ Tahmin Verisi
-                    tahmin_x = np.arange(gunler[-1], gunler[-1] + len(tahmin_serisi))
-                    ax.plot(tahmin_x, tahmin_serisi, color='#FF00FF', linestyle='--', label="YZ Tahmin", linewidth=2)
+                    # Gerçek veri
+                    ax.plot(gunler, kapanislar_son30.values, color='#00F0FF', linewidth=2, label="Gerçek")
+                    ax.fill_between(gunler, kapanislar_son30.values, min(kapanislar_son30.values)*0.99, color='#00F0FF', alpha=0.08)
+                    
+                    # Tahmin verisi (Boyutları eşitleyen dinamik yapı)
+                    son_gercek_gun = gunler[-1]
+                    tahmin_gunler = np.arange(son_gercek_gun, son_gercek_gun + len(tahmin_serisi) + 1)
+                    tahmin_degerleri = np.concatenate(([kapanislar_son30.iloc[-1]], tahmin_serisi))
+                    
+                    # Dizilerin boyutu 1 tane bile farklı olsa hata almamak için eşitleme (Safety Check)
+                    min_len = min(len(tahmin_gunler), len(tahmin_degerleri))
+                    ax.plot(tahmin_gunler[:min_len], tahmin_degerleri[:min_len], color='#FF00FF', linestyle='--', linewidth=2, label="YZ Tahmin")
                     
                     ax.tick_params(colors='white', labelsize=8)
+                    ax.grid(True, color='#2D2D2D', linestyle='--')
                     ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='white')
                     for spine in ax.spines.values(): spine.set_visible(False)
+                    fig.tight_layout()
                     st.pyplot(fig)
             except Exception as e:
                 st.error(f"Analiz hatası: {e}")
