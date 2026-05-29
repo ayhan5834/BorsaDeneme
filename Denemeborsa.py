@@ -16,17 +16,18 @@ import streamlit as st
 
 # --- 1. AYARLAR ---
 st.set_page_config(page_title="Mobil Borsa", layout="centered")
-st.markdown("""
-    <style>
-    .stApp { background-color: #121212; color: #FFFFFF; }
-    div[data-testid="stMetricWidget"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; padding: 10px; border-radius: 10px; }
-    </style>
-""", unsafe_allow_html=True)
 
-# --- 2. VERİTABANI BAĞLANTISI ---
+# --- 2. VERİTABANI BAĞLANTISI (HATA GİDERİCİ) ---
 def get_db():
     conn = sqlite3.connect("takip_listesi.db", check_same_thread=False)
     cursor = conn.cursor()
+    # Tabloyu zorla doğru yapıya getir
+    cursor.execute("SELECT count(*) FROM pragma_table_info('watchlist')")
+    col_count = cursor.fetchone()[0]
+    
+    if col_count != 3 and col_count != 0:
+        cursor.execute("DROP TABLE watchlist")
+    
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS watchlist (
             hisse_kodu TEXT PRIMARY KEY,
@@ -49,7 +50,7 @@ def tahmin_et(df):
     model.fit(data[['gun']], data['Close'].squeeze())
     return model.predict([[len(data) + 4]])[0]
 
-# --- 4. ARAYÜZ (SEKMELER) ---
+# --- 4. ARAYÜZ ---
 st.title("📱 Mobil Borsa")
 sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "ANALİZ", "RADAR"])
 
@@ -66,13 +67,16 @@ with sekme1:
                 st.rerun()
 
     hisseler = cursor.execute("SELECT * FROM watchlist").fetchall()
-    for h, m, a in hisseler:
-        c1, c2 = st.columns([3, 1])
-        c1.write(f"**{h}** | {a} Adet | {m} TL")
-        if c2.button("Sil", key=f"del_{h}"):
-            cursor.execute("DELETE FROM watchlist WHERE hisse_kodu = ?", (h,))
-            conn.commit()
-            st.rerun()
+    # Hatanın tekrar etmemesi için güvenli döngü
+    for satir in hisseler:
+        if len(satir) == 3:
+            h, m, a = satir
+            c1, c2 = st.columns([3, 1])
+            c1.write(f"**{h}** | {a} Adet | {m} TL")
+            if c2.button("Sil", key=f"del_{h}"):
+                cursor.execute("DELETE FROM watchlist WHERE hisse_kodu = ?", (h,))
+                conn.commit()
+                st.rerun()
 
 with sekme2:
     st.subheader("🔍 Hızlı Analiz")
