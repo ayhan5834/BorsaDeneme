@@ -6,30 +6,25 @@ Created on Fri May 29 15:42:45 2026
 """
 
 
+```python
 import os
 import sys
 import logging
-import sqlite3
 
-# =========================================================
-# QT / PYINSTALLER AYARI
-# =========================================================
+# PyInstaller çevre değişkeni ayarı
 if getattr(sys, 'frozen', False):
     base_dir = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
     qt_plugin_path = os.path.join(base_dir, "PyQt5", "Qt5", "plugins")
     os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = qt_plugin_path
 
-# =========================================================
-# MATPLOTLIB AYARI
-# =========================================================
+# Matplotlib ayarı
 import matplotlib
 matplotlib.use('Agg')
 
 logging.getLogger('matplotlib').setLevel(logging.ERROR)
 
-# =========================================================
 # KÜTÜPHANELER
-# =========================================================
+import sqlite3
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -39,9 +34,7 @@ import streamlit as st
 
 from sklearn.linear_model import HuberRegressor
 
-# =========================================================
-# STREAMLIT AKTİF
-# =========================================================
+# STREAMLIT
 IS_STREAMLIT = True
 
 # =========================================================
@@ -141,7 +134,6 @@ def dinamik_bist_listesi_yukle():
         "EREGL",
         "AKBNK",
         "SISE",
-        "BIMAS",
         "SASA",
         "HEKTS"
     ]
@@ -170,23 +162,23 @@ def mobil_tahmin_motoru(df):
 
         model.fit(X_train, y_train)
 
-        son_gun_index = data['gun'].iloc[-1]
+        son_gun = data['gun'].iloc[-1]
 
-        gelecek_gunler = pd.DataFrame({
-            'gun': range(son_gun_index + 1, son_gun_index + 6)
+        gelecek = pd.DataFrame({
+            'gun': range(son_gun + 1, son_gun + 6)
         })
 
-        tahmin_serisi = model.predict(gelecek_gunler)
+        tahmin = model.predict(gelecek)
 
-        return tahmin_serisi[-1], tahmin_serisi
+        return tahmin[-1], tahmin
 
     except:
 
         try:
 
-            varsayilan_fiyat = df['Close'].squeeze().iloc[-1]
+            son = df['Close'].iloc[-1]
 
-            return varsayilan_fiyat, np.full(5, varsayilan_fiyat)
+            return son, np.full(5, son)
 
         except:
 
@@ -214,6 +206,7 @@ if IS_STREAMLIT:
         background-color: #1E1E1E;
         border-radius: 10px;
         padding: 10px;
+        border: 1px solid #2D2D2D;
     }
 
     </style>
@@ -236,59 +229,60 @@ if IS_STREAMLIT:
 
         st.subheader("💼 Portföy")
 
-        with st.expander("➕ Hisse Ekle"):
+        with st.expander("➕ Yeni Hisse Ekle / Güncelle"):
 
-            yeni_hisse = st.text_input(
-                "Hisse Kodu",
-                key="mob_ekle_kod"
-            ).upper().strip()
+            with st.form("hisse_formu"):
 
-            maliyet = st.number_input(
-                "Maliyet",
-                value=0.0,
-                key="mob_ekle_mal"
-            )
+                yeni_hisse = st.text_input(
+                    "Hisse Kodu (örn: ASELS)"
+                ).upper().strip()
 
-            adet = st.number_input(
-                "Adet",
-                value=0,
-                key="mob_ekle_adet"
-            )
+                maliyet = st.number_input(
+                    "Maliyet",
+                    value=0.0,
+                    step=0.1
+                )
 
-            if st.button("Kaydet / Güncelle"):
+                adet = st.number_input(
+                    "Adet",
+                    value=0,
+                    step=1
+                )
 
-                if yeni_hisse:
+                kaydet = st.form_submit_button(
+                    "Kaydet / Güncelle"
+                )
 
-                    db.hisse_ekle(
-                        yeni_hisse,
-                        maliyet,
-                        adet
-                    )
+                if kaydet:
 
-                    st.success(
-                        f"{yeni_hisse} kaydedildi"
-                    )
+                    if yeni_hisse:
 
-                    st.session_state["mob_ekle_kod"] = ""
-                    st.session_state["mob_ekle_mal"] = 0.0
-                    st.session_state["mob_ekle_adet"] = 0
+                        db.hisse_ekle(
+                            yeni_hisse,
+                            maliyet,
+                            adet
+                        )
+
+                        st.success(
+                            f"{yeni_hisse} kaydedildi!"
+                        )
 
         hisseler = db.listeyi_getir()
 
         if not hisseler:
 
-            st.warning("Portföy boş")
+            st.warning("Henüz hisse yok.")
 
         else:
 
             for h, maliyet, adet in hisseler:
 
-                sorgu_kodu = h + ".IS"
+                sorgu = h + ".IS"
 
                 try:
 
                     df = yf.download(
-                        sorgu_kodu,
+                        sorgu,
                         period="5d",
                         interval="1d",
                         progress=False
@@ -316,9 +310,9 @@ if IS_STREAMLIT:
                     c1, c2 = st.columns([3, 1])
 
                     c1.metric(
-                        h,
-                        f"{fiyat:.2f} TL",
-                        f"{degisim:+.2f}%"
+                        label=h,
+                        value=f"{fiyat:.2f} TL",
+                        delta=f"{degisim:+.2f}%"
                     )
 
                     c1.write(f"Maliyet: {maliyet}")
@@ -328,7 +322,7 @@ if IS_STREAMLIT:
 
                         db.hisse_sil(h)
 
-                        st.rerun()
+                        st.success(f"{h} silindi")
 
                 except Exception as e:
 
@@ -342,18 +336,17 @@ if IS_STREAMLIT:
         st.subheader("📈 Hisse Analizi")
 
         hisse_kodu = st.text_input(
-            "Hisse Kodu",
-            key="analiz_hisse"
+            "Hisse Kodu"
         ).upper().strip()
 
         if hisse_kodu:
 
             try:
 
-                sorgu_kodu = hisse_kodu + ".IS"
+                sorgu = hisse_kodu + ".IS"
 
                 df = yf.download(
-                    sorgu_kodu,
+                    sorgu,
                     period="60d",
                     interval="1d",
                     progress=False
@@ -372,9 +365,9 @@ if IS_STREAMLIT:
 
                     son_fiyat = kapanis.iloc[-1]
 
-                    hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df)
+                    hedef, tahmin = mobil_tahmin_motoru(df)
 
-                    son_rsi = ta.momentum.rsi(
+                    rsi = ta.momentum.rsi(
                         kapanis,
                         window=14
                     ).iloc[-1]
@@ -383,21 +376,15 @@ if IS_STREAMLIT:
 
                     macd = macd_obj.macd().iloc[-1]
 
-                    macd_sinyal = macd_obj.macd_signal().iloc[-1]
+                    macd_signal = macd_obj.macd_signal().iloc[-1]
 
-                    if (
-                        son_rsi < 42
-                        and macd > macd_sinyal
-                    ):
-
+                    if rsi < 42 and macd > macd_signal:
                         sinyal = "AL"
 
-                    elif son_rsi > 70:
-
+                    elif rsi > 70:
                         sinyal = "SAT"
 
                     else:
-
                         sinyal = "TUT"
 
                     st.metric(
@@ -406,13 +393,12 @@ if IS_STREAMLIT:
                         sinyal
                     )
 
-                    st.write(f"RSI: {son_rsi:.2f}")
+                    st.write(f"RSI: {rsi:.2f}")
 
                     st.write(
-                        f"YZ Tahmin: {hedef_fiyat:.2f} TL"
+                        f"YZ Tahmin: {hedef:.2f} TL"
                     )
 
-                    # GRAFİK
                     fig, ax = plt.subplots(
                         figsize=(6, 3)
                     )
@@ -477,7 +463,7 @@ if IS_STREAMLIT:
 
                     kapanis = df['Close']
 
-                    son_rsi = ta.momentum.rsi(
+                    rsi = ta.momentum.rsi(
                         kapanis,
                         window=14
                     ).iloc[-1]
@@ -486,12 +472,9 @@ if IS_STREAMLIT:
 
                     macd = macd_obj.macd().iloc[-1]
 
-                    macd_sinyal = macd_obj.macd_signal().iloc[-1]
+                    macd_signal = macd_obj.macd_signal().iloc[-1]
 
-                    if (
-                        son_rsi < 42
-                        and macd > macd_sinyal
-                    ):
+                    if rsi < 42 and macd > macd_signal:
 
                         bulunanlar.append(hisse)
 
@@ -515,4 +498,4 @@ if IS_STREAMLIT:
                 st.warning(
                     "Sinyal veren hisse bulunamadı"
                 )
-
+```
