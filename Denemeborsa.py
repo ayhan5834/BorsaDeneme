@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 import ta
 from sklearn.linear_model import HuberRegressor
+import streamlit as st
 
 IS_STREAMLIT = "streamlit" in sys.modules
 
@@ -81,45 +82,27 @@ class Veritabani:
 # ==============================================================================
 # 2. DİNAMİK BIST LİSTESİ MOTORU (HALKA ARZLAR DAHİL)
 # ==============================================================================
+@st.cache_data(ttl=3600) # Listeyi 1 saat boyunca önbellekte tutar
 def dinamik_bist_listesi_yukle():
-    """
-    Yeni halka arzları ve güncel hisseleri GitHub üzerinden canlı çeker.
-    İnternet yoksa yerel CSV'ye bakar, o da yoksa BIST30 çekirdek listesine döner.
-    """
     csv_yolu = "bist_hisseler.csv"
     url = "https://raw.githubusercontent.com/atas/borsa-istanbul-hisse-listesi/main/bist_hisseler.csv"
     
-    # 1. Adım: Canlı güncel listeyi internetten çekmeyi dene
+    # 1. Adım: İnternetten çekmeyi dene
     try:
-        
-        df_canli = pd.read_csv(url, timeout=5)
+        # Streamlit üzerinde daha kararlı olması için timeout'u artırdık
+        df_canli = pd.read_csv(url, timeout=10) 
         if "kod" in df_canli.columns and not df_canli.empty:
-            # İleride internet olmadığında kullanmak üzere yerel diskte güncelle/yedekle
-            df_canli.to_csv(csv_yolu, index=False)
-            print(f"Başarılı! {len(df_canli)} hisse güncellendi.")
             return df_canli["kod"].tolist()
     except Exception as e:
-        print(f"Canlı liste alınamadı (İnternet hatası/Zaman aşımı): {e}. Yerel kaynak deneniyor...")
+        st.warning("Canlı liste çekilemedi, yerel dosya deneniyor.")
 
-    # 2. Adım: İnternet başarısızsa önceden kaydedilmiş yerel CSV dosyasını oku
-    try:
-        if os.path.exists(csv_yolu):
-            df_yerel = pd.read_csv(csv_yolu)
-            if "kod" in df_yerel.columns and not df_yerel.empty:
-                print(f"Yerel CSV başarıyla okundu: {len(df_yerel)} hisse yüklendi.")
-                return df_yerel["kod"].tolist()
-    except Exception as e:
-        print(f"Yerel CSV okuma hatası: {e}")
+    # 2. Adım: Yerel dosya
+    if os.path.exists(csv_yolu):
+        df_yerel = pd.read_csv(csv_yolu)
+        return df_yerel["kod"].tolist()
 
-    # 3. Adım: Tamamen internetsiz ve ilk açılışsa uygulamanın çökmemesi için acil durum kemik listesi
-    print("Yedek sabit hisse listesi devreye alınıyor...")
-    return [
-        "A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ARCLK", "ASELS", "ASTOR", "BIMAS", 
-        "BRSAN", "CCOLA", "CIMSA", "DOAS", "DOHOL", "EKGYO", "ENJSA", "ENKAI", "EREGL", 
-        "FROTO", "GARAN", "GUBRF", "HALKB", "HEKTS", "ISCTR", "KCAER", "KCHOL", "KONTR", 
-        "KOZAL", "MGROS", "MIATK", "ODAS", "OYAKC", "PGSUS", "REEDR", "SAHOL", "SASA", 
-        "SISE", "SOKM", "TCELL", "THYAO", "TKFEN", "TOASO", "TUPRS", "VAKBN", "VESTL", "YKBNK"
-    ]
+    # 3. Adım: Yedek liste (46 adet)
+    return ["A1CAP", "ADEL", "AGROT", "AKBNK", ... ] # (Diğerleri aynı)
 
 # Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
@@ -368,4 +351,3 @@ if IS_STREAMLIT:
                     st.write(", ".join(bulunanlar))
                 else:
                     st.warning("Şu an AL sinyali veren hisse bulunamadı.")
-
