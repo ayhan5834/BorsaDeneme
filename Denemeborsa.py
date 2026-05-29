@@ -211,10 +211,19 @@ if IS_STREAMLIT:
             
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
                 with st.container(border=True):
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    c1.metric(label=f"{h} ({status})", value=f"{fiyat:.2f} TL" if fiyat > 0 else "N/A", delta=f"{degisim:+.2f}%" if fiyat > 0 else None)
-                    c2.write(f"**{m_metni}**")
-                    c2.write(f"Adet: {adet}")
+                    # Kolon oranlarını biraz değiştirdik: c1 (Fiyat/Durum), c2 (Detaylar), c3 (Sil Butonu)
+                    c1, c2, c3 = st.columns([2.5, 2.5, 1])
+                    
+                    # Fiyat ve Delta bilgisi
+                    c1.metric(label=f"{h} ({status})", value=f"{fiyat:.2f} TL" if fiyat > 0 else "N/A", 
+                              delta=f"{degisim:+.2f}%" if fiyat > 0 else None)
+                    
+                    # Maliyet ve Adet bilgilerini yan yana koymak için yeni bir column yapısı
+                    sub_c1, sub_c2 = c2.columns(2)
+                    sub_c1.write(f"**{m_metni}**")
+                    sub_c2.write(f"**Adet:** {adet}")
+                    
+                    # Silme butonu
                     if c3.button("🗑️ Sil", key=f"del_{h}"):
                         db.hisse_sil(h)
                         st.rerun()
