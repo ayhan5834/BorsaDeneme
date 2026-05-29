@@ -227,7 +227,7 @@ if IS_STREAMLIT:
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
                 with st.container(border=True):
                     # Sütunları mobilde korumak için oranları daraltıyoruz
-                    c1, c2, c3 = st.columns([3, 3, 1.5])
+                    c1, c2, c3 = st.columns([0.4, 1, 1])
                     
                     c1.metric(label=f"{h}", value=f"{fiyat:.2f} TL" if fiyat > 0 else "--", 
                               delta=f"{degisim:+.2f}%" if fiyat > 0 else None)
@@ -240,7 +240,7 @@ if IS_STREAMLIT:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if c3.button("🗑️", key=f"del_{h}", help="Sil"):
+                    if c3.button("🗑️Sil", key=f"del_{h}", help="Sil"):
                         db.hisse_sil(h)
                         st.rerun()
                         
