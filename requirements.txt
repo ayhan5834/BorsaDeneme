@@ -1,1 +1,7 @@
-pandas, yfinance, ta, scikit-learn, streamlit, matplotlib
+streamlit
+yfinance
+pandas
+numpy
+matplotlib
+ta
+scikit-learn
