@@ -12,21 +12,21 @@ import logging
 import sqlite3
 import pandas as pd
 import numpy as np
-import matplotlib  # ÖNCE BU
-matplotlib.use('Agg') # SONRA BU
+import matplotlib
 import matplotlib.pyplot as plt
 import yfinance as yf
 import ta
 import streamlit as st
 from sklearn.linear_model import HuberRegressor
 
-# Artık alt satırlarda kodunuzu tanımlayabilirsiniz...
-
 # Matplotlib ayarı
 matplotlib.use('Agg')
+logging.getLogger('matplotlib').setLevel(logging.ERROR)
+
+IS_STREAMLIT = "streamlit" in sys.modules
 
 # ==============================================================================
-# VERİTABANI YÖNETİMİ
+# 1. VERİTABANI SINIFI
 # ==============================================================================
 class Veritabani:
     def __init__(self):
@@ -45,12 +45,15 @@ class Veritabani:
         """)
         self.baglanti.commit()
 
-    def hisse_ekle(self, kod, maliyet, adet):
+    def hisse_ekle(self, kod, maliyet=0.0, adet=0):
         try:
             self.cursor.execute("INSERT INTO watchlist (hisse_kodu, maliyet, adet) VALUES (?, ?, ?)", (kod, maliyet, adet))
+            self.baglanti.commit()
+            return True
         except sqlite3.IntegrityError:
             self.cursor.execute("UPDATE watchlist SET maliyet = ?, adet = ? WHERE hisse_kodu = ?", (maliyet, adet, kod))
-        self.baglanti.commit()
+            self.baglanti.commit()
+            return True
 
     def hisse_sil(self, kod):
         self.cursor.execute("DELETE FROM watchlist WHERE hisse_kodu = ?", (kod,))
@@ -60,73 +63,78 @@ class Veritabani:
         self.cursor.execute("SELECT hisse_kodu, maliyet, adet FROM watchlist")
         return self.cursor.fetchall()
 
+# Veritabanını sabitleyen yapı (Kilitlenmeyi önler)
 @st.cache_resource
 def get_db():
     return Veritabani()
 
-db = get_db()
-
 # ==============================================================================
-# YARDIMCI FONKSİYONLAR
+# 2. DİNAMİK BIST LİSTESİ MOTORU
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def dinamik_bist_listesi_yukle():
-    if os.path.exists("bist_hisseler.csv"):
-        return pd.read_csv("bist_hisseler.csv")["kod"].tolist()
-    return ["THYAO", "ASELS", "KRDMD", "TUPRS", "EREGL", "AKBNK", "SISE", "BIMAS", "SASA", "HEKTS"]
+    csv_yolu = "bist_hisseler.csv"
+    if os.path.exists(csv_yolu):
+        df = pd.read_csv(csv_yolu)
+        return df["kod"].tolist()
+    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK"]
 
+# ==============================================================================
+# 3. YAPAY ZEKA TAHMİN MOTORU
+# ==============================================================================
 def mobil_tahmin_motoru(df):
     if df is None or df.empty or len(df) < 5:
         return 0.0, np.zeros(5)
     try:
         data = df.tail(60).copy()
         data['gun'] = range(len(data))
-        model = HuberRegressor().fit(data[['gun']], data['Close'])
-        son_gun = data['gun'].iloc[-1]
-        tahminler = model.predict(np.arange(son_gun + 1, son_gun + 6).reshape(-1, 1))
-        return tahminler[-1], tahminler
+        model = HuberRegressor(max_iter=1000)
+        model.fit(data[['gun']], data['Close'].squeeze())
+        son_gun_index = data['gun'].iloc[-1]
+        gelecek_gunler = pd.DataFrame({'gun': range(son_gun_index + 1, son_gun_index + 6)})
+        tahmin_serisi = model.predict(gelecek_gunler)
+        return tahmin_serisi[-1], tahmin_serisi
     except:
-        return df['Close'].iloc[-1], np.full(5, df['Close'].iloc[-1])
+        return 0.0, np.zeros(5)
 
 # ==============================================================================
-# STREAMLIT ARAYÜZÜ
+# 4. STREAMLIT MOBİL UYGULAMA PANELİ
 # ==============================================================================
-st.set_page_config(page_title="Mobil Borsa", layout="centered")
-st.markdown("""<style>.stApp {background-color: #121212; color: white;}</style>""", unsafe_allow_html=True)
+if IS_STREAMLIT:   
+    st.set_page_config(page_title="Mobil Borsa", layout="centered")
+    
+    st.markdown("""
+        <style>
+        .stApp { background-color: #121212; color: #FFFFFF; }
+        </style>
+    """, unsafe_allow_html=True)
 
-st.title("📱 Mobil Borsa")
-sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "ANALİZ", "RADAR"])
-
-with sekme1:
-    st.subheader("💼 Portföy")
-    with st.expander("➕ Hisse Ekle / Güncelle"):
-        yeni_hisse = st.text_input("Hisse Kodu").upper().strip()
-        maliyet = st.number_input("Maliyet", value=0.0)
-        adet = st.number_input("Adet", value=0)
-        if st.button("Kaydet"):
-            if yeni_hisse:
-                db.hisse_ekle(yeni_hisse, maliyet, adet)
-                st.rerun()
-
-    hisseler = db.listeyi_getir()
-    for h, m, a in hisseler:
-        c1, c2 = st.columns([3, 1])
-        c1.write(f"**{h}** - Adet: {a} | Maliyet: {m}")
-        if c2.button("Sil", key=f"del_{h}"):
-            db.hisse_sil(h)
-            st.rerun()
-
-with sekme2:
-    hisse_kodu = st.text_input("Analiz için kod girin").upper().strip()
-    if hisse_kodu:
-        df = yf.download(f"{hisse_kodu}.IS", period="60d", progress=False)
-        if not df.empty:
-            son_fiyat = df['Close'].iloc[-1]
-            hedef, _ = mobil_tahmin_motoru(df)
-            st.metric(hisse_kodu, f"{son_fiyat:.2f} TL", f"Tahmin: {hedef:.2f} TL")
+    st.title("📱 Mobil Borsa")
+    db = get_db() # Sabitlenmiş bağlantıyı kullan
+    
+    sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
+    
+    with sekme1:
+        st.subheader("💼 Portföy & Durum")
+        
+        with st.expander("➕ Yeni Hisse Ekle / Maliyet Düzenle"):
+            yeni_hisse = st.text_input("Hisse Kodu", key="mob_ekle_kod").upper().strip()
+            maliyet = st.number_input("Maliyet", value=0.0, step=0.1, key="mob_ekle_mal")
+            adet = st.number_input("Adet", value=0, step=1, key="mob_ekle_adet")
             
-with sekme3:
-    if st.button("Taramayı Başlat"):
-        for h in dinamik_bist_listesi_yukle():
-            st.write(f"Taranıyor: {h}")
-            # Tarama mantığınız buraya...
+            if st.button("Kaydet / Güncelle", key="mob_kaydet_btn"):
+                if yeni_hisse:
+                    db.hisse_ekle(yeni_hisse, maliyet, adet)
+                    st.success(f"{yeni_hisse} portföye kaydedildi!")
+                    st.rerun() # Arayüzü hemen güncelle
+        
+        hisseler = db.listeyi_getir()
+        if not hisseler:
+            st.warning("Henüz takip listesinde hisse yok.")
+        else:
+            for h, maliyet, adet in hisseler:
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"**{h}** | Maliyet: {maliyet} | Adet: {adet}")
+                if col2.button("🗑️ Sil", key=f"del_{h}"):
+                    db.hisse_sil(h)
+                    st.rerun()
