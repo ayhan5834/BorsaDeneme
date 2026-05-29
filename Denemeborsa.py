@@ -222,10 +222,10 @@ if IS_STREAMLIT:
         if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
             st.rerun()
 
-    # --- 2. SEKME: PANEL KART ANALİZİ ---
+    # --- 2. SEKME: PANEL KART ANALİZİ (YZ + GRAFİK + HACİM) ---
     with sekme2:
         st.subheader("🔍 Detaylı Hisse Analizi")
-        hisse_kodu = st.text_input("Hisse Kodu Giriniz (Örn: THYAO)", key="mob_analiz_input").upper().strip()
+        hisse_kodu = st.text_input("Hisse Kodu (Örn: THYAO)", key="mob_analiz_input").upper().strip()
         
         if hisse_kodu:
             sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
@@ -233,52 +233,41 @@ if IS_STREAMLIT:
                 df = yf.download(sorgu_kodu, period="60d", interval="1d", progress=False)
                 if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                 
-                if df is None or df.empty or len(df) < 20:
-                    st.error("Hisse verisi yetersiz veya kapalı.")
-                else:
+                if df is not None and not df.empty:
                     kapanis = df['Close'].squeeze()
                     hacim = df['Volume'].squeeze()
                     son_fiyat = kapanis.iloc[-1]
                     
+                    # YZ TAHMİNİ
                     hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df)
-                    potansiyel_getiri = ((hedef_fiyat - son_fiyat) / son_fiyat) * 100 if son_fiyat > 0 else 0
-                    
-                    # Göstergeler
-                    son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
-                    macd_obj = ta.trend.MACD(kapanis)
-                    macd_cizgisi = macd_obj.macd().iloc[-1]
-                    macd_sinyal = macd_obj.macd_signal().iloc[-1]
+                    potansiyel = ((hedef_fiyat - son_fiyat) / son_fiyat) * 100
                     
                     # HACİM ONAYI
                     hacim_ort = hacim.rolling(10).mean().iloc[-1]
                     hacim_onay = hacim.iloc[-1] > (hacim_ort * 0.8)
-                    hacim_ikon = "✅ Hacimli" if hacim_onay else "⚠️ Düşük Hacim"
                     
-                    if (son_rsi < 42 and macd_cizgisi > macd_sinyal and hacim_onay) or (son_rsi < 30):
-                        genel_durum, s_renk = "GÜÇLÜ AL", "#2ECC71"
-                    elif (son_rsi > 70) or (macd_cizgisi < macd_sinyal):
-                        genel_durum, s_renk = "SAT", "#E74C3C"
-                    else:
-                        genel_durum, s_renk = "TUT", "#8A8A8A"
-                        
                     st.markdown(f"""
-                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 15px;'>
-                        <h2 style='margin: 0; color: white;'>{hisse_kodu}</h2>
-                        <h1 style='margin: 10px 0; color: #00F0FF;'>{son_fiyat:,.2f} TL</h1>
-                        <div style='background-color: {s_renk}; color: #121212; padding: 6px; border-radius: 8px; font-weight: bold; display: inline-block; width: 100%;'>
-                            {genel_durum}
-                        </div>
-                        <p style='margin-top: 10px; font-size: 14px; color: white;'>RSI: {son_rsi:.2f} | {hacim_ikon}</p>
-                        <p style='color: #8A8A8A; font-size: 13px;'>🚀 YZ Tahmin: <b>{hedef_fiyat:.2f} TL</b></p>
+                    <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #2D2D2D;'>
+                        <h3 style='color: white;'>{hisse_kodu} Analizi</h3>
+                        <p>Fiyat: <b>{son_fiyat:,.2f} TL</b> | Hacim Onay: {'✅' if hacim_onay else '❌'}</p>
+                        <p style='color: #00F0FF;'>🚀 YZ 5 Günlük Tahmin: <b>{hedef_fiyat:.2f} TL</b> (%{potansiyel:+.2f})</p>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # --- GRAFİK ---
+                    # --- YZ DESTEKLİ GRAFİK ---
                     fig, ax = plt.subplots(figsize=(6, 3.5), facecolor='#121212')
                     ax.set_facecolor('#1E1E1E')
-                    ax.plot(np.arange(30), kapanis.tail(30).values, color='#00F0FF', linewidth=2)
+                    
+                    # Gerçek Veri
+                    gunler = np.arange(len(kapanis.tail(30)))
+                    ax.plot(gunler, kapanis.tail(30).values, color='#00F0FF', label="Gerçek Fiyat", linewidth=2)
+                    
+                    # YZ Tahmin Verisi
+                    tahmin_x = np.arange(gunler[-1], gunler[-1] + len(tahmin_serisi))
+                    ax.plot(tahmin_x, tahmin_serisi, color='#FF00FF', linestyle='--', label="YZ Tahmin", linewidth=2)
+                    
                     ax.tick_params(colors='white', labelsize=8)
-                    ax.grid(True, color='#2D2D2D', linestyle='--')
+                    ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='white')
                     for spine in ax.spines.values(): spine.set_visible(False)
                     st.pyplot(fig)
             except Exception as e:
@@ -321,5 +310,3 @@ if IS_STREAMLIT:
                 for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             else:
                 st.warning("Hacim onaylı AL sinyali veren hisse bulunamadı.")
-                hedef, _ = mobil_tahmin_motoru(df)
-                st.write(f"YZ Tahmin: {hedef:.2f} TL")
