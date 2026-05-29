@@ -17,19 +17,14 @@ import streamlit as st
 # --- 1. AYARLAR ---
 st.set_page_config(page_title="Mobil Borsa", layout="centered")
 
-# --- 2. VERİTABANI BAĞLANTISI (HATA GİDERİCİ) ---
+# --- 2. VERİTABANI BAĞLANTISI (OTOMATİK ONARIMLI) ---
 def get_db():
     conn = sqlite3.connect("takip_listesi.db", check_same_thread=False)
     cursor = conn.cursor()
-    # Tabloyu zorla doğru yapıya getir
-    cursor.execute("SELECT count(*) FROM pragma_table_info('watchlist')")
-    col_count = cursor.fetchone()[0]
-    
-    if col_count != 3 and col_count != 0:
-        cursor.execute("DROP TABLE watchlist")
-    
+    # Tabloyu zorla temizle ve yeniden oluştur (Hataları kökten bitirmek için)
+    cursor.execute("DROP TABLE IF EXISTS watchlist")
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS watchlist (
+        CREATE TABLE watchlist (
             hisse_kodu TEXT PRIMARY KEY,
             maliyet REAL,
             adet INTEGER
@@ -42,13 +37,14 @@ conn, cursor = get_db()
 
 # --- 3. ANALİZ MOTORU ---
 def tahmin_et(df):
-    if df is None or df.empty or len(df) < 10:
+    try:
+        data = df.tail(60).copy()
+        data['gun'] = range(len(data))
+        model = HuberRegressor()
+        model.fit(data[['gun']], data['Close'].squeeze())
+        return model.predict([[len(data) + 4]])[0]
+    except:
         return 0.0
-    data = df.tail(60).copy()
-    data['gun'] = range(len(data))
-    model = HuberRegressor()
-    model.fit(data[['gun']], data['Close'].squeeze())
-    return model.predict([[len(data) + 4]])[0]
 
 # --- 4. ARAYÜZ ---
 st.title("📱 Mobil Borsa")
@@ -66,17 +62,16 @@ with sekme1:
                 conn.commit()
                 st.rerun()
 
-    hisseler = cursor.execute("SELECT * FROM watchlist").fetchall()
-    # Hatanın tekrar etmemesi için güvenli döngü
+    # Hata almamak için güvenli veritabanı okuma
+    hisseler = cursor.execute("SELECT hisse_kodu, maliyet, adet FROM watchlist").fetchall()
     for satir in hisseler:
-        if len(satir) == 3:
-            h, m, a = satir
-            c1, c2 = st.columns([3, 1])
-            c1.write(f"**{h}** | {a} Adet | {m} TL")
-            if c2.button("Sil", key=f"del_{h}"):
-                cursor.execute("DELETE FROM watchlist WHERE hisse_kodu = ?", (h,))
-                conn.commit()
-                st.rerun()
+        h, m, a = satir
+        c1, c2 = st.columns([3, 1])
+        c1.write(f"**{h}** | {a} Adet | {m} TL")
+        if c2.button("Sil", key=f"del_{h}"):
+            cursor.execute("DELETE FROM watchlist WHERE hisse_kodu = ?", (h,))
+            conn.commit()
+            st.rerun()
 
 with sekme2:
     st.subheader("🔍 Hızlı Analiz")
