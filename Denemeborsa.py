@@ -209,22 +209,38 @@ if IS_STREAMLIT:
                 
             st.write("")
             
+             # --- CSS'İ SAKIN DÖNGÜ İÇİNE KOYMA, EN ÜSTTE BİR KEZ TANIMLA ---
+            st.markdown("""
+                <style>
+                .hisse-satiri { 
+                    display: flex; 
+                    justify-content: space-between; 
+                    align-items: center; 
+                    padding: 10px; 
+                    border-bottom: 1px solid #2D2D2D; 
+                }
+                .hisse-detay { font-size: 13px; color: #CCCCCC; }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # --- PORTFÖY LİSTELEME DÖNGÜSÜ ---
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
                 with st.container(border=True):
-                    # Kolon oranlarını biraz değiştirdik: c1 (Fiyat/Durum), c2 (Detaylar), c3 (Sil Butonu)
-                    c1, c2, c3 = st.columns([0.5, 1, 1])
+                    # Sütunları mobilde korumak için oranları daraltıyoruz
+                    c1, c2, c3 = st.columns([3, 3, 1.5])
                     
-                    # Fiyat ve Delta bilgisi
-                    c1.metric(label=f"{h} ({status})", value=f"{fiyat:.2f} TL" if fiyat > 0 else "--", 
+                    c1.metric(label=f"{h}", value=f"{fiyat:.2f} TL" if fiyat > 0 else "--", 
                               delta=f"{degisim:+.2f}%" if fiyat > 0 else None)
                     
-                    # Maliyet ve Adet bilgilerini yan yana koymak için yeni bir column yapısı
-                    sub_c1, sub_c2 = c2.columns(2)
-                    sub_c1.write(f"**{m_metni}**")
-                    sub_c2.write(f"**Adet:** {adet}")
+                    # c2 içerisinde yan yana olması için markdown kullanımı
+                    c2.markdown(f"""
+                        <div class='hisse-detay'>
+                            <b>{m_metni}</b><br>
+                            Adet: {adet}
+                        </div>
+                    """, unsafe_allow_html=True)
                     
-                    # Silme butonu
-                    if c3.button("🗑️ Sil", key=f"del_{h}"):
+                    if c3.button("🗑️", key=f"del_{h}", help="Sil"):
                         db.hisse_sil(h)
                         st.rerun()
                         
