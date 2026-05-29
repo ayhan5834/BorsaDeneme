@@ -5,67 +5,52 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
-import os
-import sys
-import sqlite3
-import pandas as pd
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-import yfinance as yf
-import ta
 import streamlit as st
-from sklearn.linear_model import HuberRegressor
+import sqlite3
+import os
 
-# Temel ayarlar
-matplotlib.use('Agg')
-st.set_page_config(page_title="Mobil Borsa", layout="centered")
-
-# CSS: Mobil cihazlarda input kutularının tıklanabilirliğini artırır
-st.markdown("""
-    <style>
-    div[data-testid="stTextInput"] input {
-        font-size: 16px !important; /* Mobil için en iyi okuma boyutu */
-        padding: 10px !important;
-    }
-    .stApp { background-color: #121212; color: #FFFFFF; }
-    </style>
-""", unsafe_allow_html=True)
-
-# Veritabanı Yönetimi
+# 1. Veritabanı Yapılandırması
 class Veritabani:
     def __init__(self):
         self.baglanti = sqlite3.connect("takip_listesi.db", check_same_thread=False)
         self.cursor = self.baglanti.cursor()
-        self.cursor.execute("CREATE TABLE IF NOT EXISTS watchlist (id INTEGER PRIMARY KEY, hisse_kodu TEXT UNIQUE, maliyet REAL, adet INTEGER)")
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                hisse_kodu TEXT PRIMARY KEY,
+                maliyet REAL,
+                adet INTEGER
+            )
+        """)
         self.baglanti.commit()
 
     def hisse_ekle(self, kod, maliyet, adet):
-        try:
-            self.cursor.execute("INSERT OR REPLACE INTO watchlist (hisse_kodu, maliyet, adet) VALUES (?, ?, ?)", (kod, maliyet, adet))
-            self.baglanti.commit()
-        except: pass
+        self.cursor.execute("INSERT OR REPLACE INTO watchlist VALUES (?, ?, ?)", (kod, maliyet, adet))
+        self.baglanti.commit()
 
     def listeyi_getir(self):
-        return self.cursor.execute("SELECT hisse_kodu, maliyet, adet FROM watchlist").fetchall()
+        return self.cursor.execute("SELECT * FROM watchlist").fetchall()
 
+# Veritabanını sabitle
 @st.cache_resource
-def get_db(): return Veritabani()
+def get_db():
+    return Veritabani()
 
 db = get_db()
 
-# Arayüz
-st.title("📱 Mobil Borsa")
-yeni_hisse = st.text_input("Hisse Kodu (Örn: ASELS)", key="kod")
-maliyet = st.number_input("Maliyet", value=0.0, key="mal")
-adet = st.number_input("Adet", value=0, key="adet")
+# 2. Arayüz (Sadece Veri Girişi)
+st.title("Veri Giriş Paneli")
 
-if st.button("Kaydet"):
-    if yeni_hisse:
-        db.hisse_ekle(yeni_hisse.upper(), maliyet, adet)
-        st.success("Kaydedildi!")
-        st.rerun()
+with st.form("veri_giris_formu", clear_on_submit=True):
+    kod = st.text_input("Hisse Kodu").upper()
+    maliyet = st.number_input("Maliyet", step=0.01)
+    adet = st.number_input("Adet", step=1)
+    
+    submit = st.form_submit_button("Kaydet")
+    if submit and kod:
+        db.hisse_ekle(kod, maliyet, adet)
+        st.success(f"{kod} kaydedildi!")
 
-st.write("---")
-for h, m, a in db.listeyi_getir():
-    st.write(f"**{h}** - Adet: {a} | Maliyet: {m}")
+# 3. Liste Gösterimi
+st.subheader("Kayıtlı Hisseler")
+for item in db.listeyi_getir():
+    st.write(f"Hisse: {item[0]} | Maliyet: {item[1]} | Adet: {item[2]}")
