@@ -270,28 +270,25 @@ if IS_STREAMLIT:
                         db.hisse_ekle(hisse_kodu, 0.0, 0)
                         st.success(f"{hisse_kodu} listeye eklendi!")
                     
-                    # Grafik çizdirme bloğu
+                    # --- GÜVENLİ GRAFİK ÇİZİMİ ---
                     fig, ax = plt.subplots(figsize=(6, 3.5), facecolor='#121212')
                     ax.set_facecolor('#1E1E1E')
                     
                     kapanislar_son30 = kapanis.tail(30)
                     gunler = np.arange(len(kapanislar_son30))
                     
-                    # Gerçek veriyi çiz
+                    # Gerçek veri
                     ax.plot(gunler, kapanislar_son30.values, color='#00F0FF', linewidth=2, label="Gerçek")
                     ax.fill_between(gunler, kapanislar_son30.values, min(kapanislar_son30.values)*0.99, color='#00F0FF', alpha=0.08)
                     
-                    # Tahmin verisini düzelt: 
-                    # Son gerçek günü tahmin serisine dahil ediyoruz (birleştirme hatasını önlemek için)
-                    tahmin_gunler = np.arange(len(kapanislar_son30) - 1, len(kapanislar_son30) + 4)
-                    
-                    # Tahmin serisi 5 elemanlı olduğu için, başına son gerçek fiyatı ekleyip 6 elemanlı yapıyoruz.
-                    # Ancak plot ederken gunler dizisiyle boyutu tutturmalıyız.
+                    # Tahmin verisi (Boyutları eşitleyen dinamik yapı)
+                    son_gercek_gun = gunler[-1]
+                    tahmin_gunler = np.arange(son_gercek_gun, son_gercek_gun + len(tahmin_serisi) + 1)
                     tahmin_degerleri = np.concatenate(([kapanislar_son30.iloc[-1]], tahmin_serisi))
                     
-                    # İşte burada hata alıyordun; tahmin_gunler 6 elemanlı (son_gun + 5 gün), 
-                    # tahmin_degerleri de 6 elemanlı (son_fiyat + 5 tahmin).
-                    ax.plot(tahmin_gunler, tahmin_degerleri, color='#FF00FF', linestyle='--', linewidth=2, label="YZ Tahmin")
+                    # Dizilerin boyutu 1 tane bile farklı olsa hata almamak için eşitleme (Safety Check)
+                    min_len = min(len(tahmin_gunler), len(tahmin_degerleri))
+                    ax.plot(tahmin_gunler[:min_len], tahmin_degerleri[:min_len], color='#FF00FF', linestyle='--', linewidth=2, label="YZ Tahmin")
                     
                     ax.tick_params(colors='white', labelsize=8)
                     ax.grid(True, color='#2D2D2D', linestyle='--')
