@@ -6,22 +6,44 @@ Created on Fri May 29 15:42:45 2026
 """
 
 import streamlit as st
+import sqlite3
 
-st.title("Alternatif Giriş Paneli")
+# Veritabanı bağlantısı
+def get_db():
+    conn = sqlite3.connect("takip_listesi.db", check_same_thread=False)
+    return conn
 
-# Saf HTML formu - Streamlit'in kendi text_input'unu kullanmıyoruz
-# Bu yöntem mobil tarayıcıların "native" klavye tetikleyicisini kullanır
+conn = get_db()
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS watchlist (hisse TEXT PRIMARY KEY)")
+conn.commit()
+
+st.title("Mobil Veri Girişi")
+
+# Yazılabilir olan HTML formumuzu ekleyelim
 html_form = """
-<form action="" method="get">
-  <input type="text" name="hisse" placeholder="Hisse kodunu buraya yazın..." 
-         style="width: 100%; height: 50px; font-size: 20px; padding: 10px; border: 2px solid #ccc; border-radius: 8px;">
-  <input type="submit" value="Gönder" style="margin-top: 10px; width: 100%; height: 50px; font-size: 18px;">
+<form method="get" style="display:flex; flex-direction:column; gap:10px;">
+  <input type="text" name="hisse_adi" placeholder="Hisse kodunu yazın..." 
+         style="width: 100%; height: 50px; font-size: 20px; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">
+  <button type="submit" style="height: 50px; font-size: 18px; border-radius: 8px;">Kaydet</button>
 </form>
 """
-
 st.components.v1.html(html_form, height=150)
 
-# Gönderilen veriyi yakala
+# Gönderilen veriyi veritabanına ekle
 query_params = st.query_params
-if "hisse" in query_params:
-    st.write(f"Yakalanan veri: {query_params['hisse']}")
+if "hisse_adi" in query_params:
+    hisse = query_params["hisse_adi"].upper()
+    try:
+        cursor.execute("INSERT INTO watchlist (hisse) VALUES (?)", (hisse,))
+        conn.commit()
+        st.success(f"{hisse} başarıyla veritabanına kaydedildi!")
+    except:
+        st.warning(f"{hisse} zaten kayıtlı.")
+
+# Listeleme
+st.subheader("Kayıtlı Hisseler:")
+cursor.execute("SELECT * FROM watchlist")
+hisseler = cursor.fetchall()
+for h in hisseler:
+    st.write(f"✅ {h[0]}")
