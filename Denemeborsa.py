@@ -285,7 +285,7 @@ if IS_STREAMLIT:
 
     # --- 3. SEKME: MEGA RADAR TARAMASI (GÜNCELLENMİŞ VE İLERLEME ÇUBUKLU) ---
     with sekme3:
-        st.subheader("🔍 Mega Radar Taraması")
+        st.subheader("🔍 Radar Taraması")
         
         col1, col2 = st.columns(2)
         hacim_filtresi = col1.checkbox("Hacim Onayı İstiyorum", value=True)
