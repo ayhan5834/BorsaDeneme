@@ -283,11 +283,10 @@ if IS_STREAMLIT:
             except Exception as e:
                 st.error(f"Analiz hatası: {e}")
 
-    # --- 3. SEKME: MEGA RADAR TARAMASI (FİLTRELİ) ---
+    # --- 3. SEKME: MEGA RADAR TARAMASI (GÜNCELLENMİŞ VE İLERLEME ÇUBUKLU) ---
     with sekme3:
         st.subheader("🔍 Mega Radar Taraması")
         
-        # Kullanıcı tercihleri
         col1, col2 = st.columns(2)
         hacim_filtresi = col1.checkbox("Hacim Onayı İstiyorum", value=True)
         sadece_guclu = col2.checkbox("Sadece GÜÇLÜ AL Sinyalleri", value=False)
@@ -295,9 +294,17 @@ if IS_STREAMLIT:
         if st.button("🚀 TARAMAYI BAŞLAT", key="mob_radar_start"):
             guncel_hisse_listesi = dinamik_bist_listesi_yukle()
             bulunanlar = []
+            toplam = len(guncel_hisse_listesi)
             
-            # Tarama süreci...
-            for h in guncel_hisse_listesi:
+            # İlerleme elemanlarını hazırla
+            ilerleme_bari = st.progress(0)
+            durum_alani = st.empty()
+            
+            for idx, h in enumerate(guncel_hisse_listesi):
+                # Anlık sayaç ve bilgi güncelleme
+                durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
+                ilerleme_bari.progress((idx + 1) / toplam)
+                
                 try:
                     df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
                     if df is None or len(df) < 20: continue
@@ -308,20 +315,22 @@ if IS_STREAMLIT:
                     macd_c = ta.trend.MACD(kapanis).macd().iloc[-1]
                     macd_s = ta.trend.MACD(kapanis).macd_signal().iloc[-1]
                     
-                    # 1. Temel Sinyal
+                    # Sinyal Kontrolleri
                     sinyal_var = (son_rsi < 42 and macd_c > macd_s) or (sadece_guclu == False and son_rsi < 30)
                     
-                    # 2. Hacim Filtresi (Opsiyonel)
+                    # Hacim Kontrolü
                     hacim_ort = hacim.rolling(10).mean().iloc[-1]
                     hacim_onayli = hacim.iloc[-1] > (hacim_ort * 0.8)
                     
-                    # Filtreleme Mantığı
                     if sinyal_var:
-                        if hacim_filtresi:
-                            if hacim_onayli: bulunanlar.append(h)
-                        else:
+                        if not hacim_filtresi or hacim_onayli:
                             bulunanlar.append(h)
-                except: continue
+                except: 
+                    continue
+            
+            # İşlem bittiğinde temizle
+            durum_alani.text("Tarama tamamlandı!")
+            ilerleme_bari.empty()
             
             if bulunanlar:
                 st.success(f"✅ {len(bulunanlar)} adet hisse kriterlerine uygun:")
