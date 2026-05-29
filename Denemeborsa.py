@@ -5,7 +5,7 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
-import os
+ import os
 import sys
 import logging
 
@@ -318,29 +318,54 @@ if IS_STREAMLIT:
             except Exception as e:
                 st.error(f"Analiz hatası: {e}")
 
-    # --- 3. SEKME: MEGA RADAR TARAMASI (DÜZELTİLMİŞ) ---
-    with sekme3:
-        st.subheader("🔍 Mega Radar Taraması")
-        st.write("Tüm BIST hisseleri taranarak AL sinyali üretenler listelenir.")
-        
-        # HİSSE LİSTESİNİ BURADA YENİDEN ÇAĞIRIN (Streamlit için güvenli hale getirin)
-        guncel_hisse_listesi = dinamik_bist_listesi_yukle() 
-        
-        if st.button("🚀 TÜM BORSAYI TARAMAYA BAŞLAT", key="mob_radar_start"):
-            bulunanlar = []
-            ilerleme_bari = st.progress(0)
-            durum_alani = st.empty()
+    # --- 3. SEKME: MEGA RADAR TARAMASI (TAMAMLANMIŞ) ---
+        with sekme3:
+            st.subheader("🔍 Mega Radar Taraması")
+            st.write("Tüm BIST hisseleri taranarak AL sinyali üretenler listelenir.")
             
-            toplam = len(guncel_hisse_listesi) # TUM_BIST yerine yerel değişkeni kullanın
+            guncel_hisse_listesi = dinamik_bist_listesi_yukle() 
             
-            for idx, h in enumerate(guncel_hisse_listesi):
-                durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
-                ilerleme_bari.progress((idx + 1) / toplam)
+            if st.button("🚀 TÜM BORSAYI TARAMAYA BAŞLAT", key="mob_radar_start"):
+                bulunanlar = []
+                ilerleme_bari = st.progress(0)
+                durum_alani = st.empty()
                 
-                try:
-                    # Buradaki formatın '.IS' eklenmiş haliyle doğru olduğundan emin olun
-                    df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
+                toplam = len(guncel_hisse_listesi)
+                
+                for idx, h in enumerate(guncel_hisse_listesi):
+                    durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
+                    ilerleme_bari.progress((idx + 1) / toplam)
                     
-                    if df is None or df.empty or len(df) < 15: 
+                    try:
+                        df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
+                        
+                        if df is None or df.empty or len(df) < 20: 
+                            continue
+                        
+                        if isinstance(df.columns, pd.MultiIndex): 
+                            df.columns = df.columns.droplevel(1)
+                        
+                        kapanis = df['Close'].squeeze()
+                        
+                        # Göstergeleri Hesapla
+                        son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
+                        macd_obj = ta.trend.MACD(kapanis)
+                        macd_cizgisi = macd_obj.macd().iloc[-1]
+                        macd_sinyal = macd_obj.macd_signal().iloc[-1]
+                        
+                        # AL Sinyali Kontrolü
+                        if (son_rsi < 42 and macd_cizgisi > macd_sinyal) or (son_rsi < 30):
+                            bulunanlar.append(h)
+                            
+                    except:
                         continue
-                    
+                
+                durum_alani.text("Tarama tamamlandı!")
+                ilerleme_bari.empty()
+                
+                if bulunanlar:
+                    st.success(f"✅ {len(bulunanlar)} adet hisse AL sinyali üretti:")
+                    st.write(", ".join(bulunanlar))
+                else:
+                    st.warning("Şu an AL sinyali veren hisse bulunamadı.")
+  
