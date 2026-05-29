@@ -136,7 +136,7 @@ if IS_STREAMLIT:
         </style>
     """, unsafe_allow_html=True)
 
-    st.title("📱 Mobil Borsa Paneli")
+    st.title("📱 Mobil Borsa")
     db = Veritabani()
     
     sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
