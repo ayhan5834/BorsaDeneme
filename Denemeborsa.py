@@ -7,495 +7,449 @@ Created on Fri May 29 15:42:45 2026
 
 
 
-import os
-import sys
-import logging
-
-# PyInstaller çevre değişkeni ayarı
-if getattr(sys, 'frozen', False):
-    base_dir = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
-    qt_plugin_path = os.path.join(base_dir, "PyQt5", "Qt5", "plugins")
-    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = qt_plugin_path
-
-# Matplotlib ayarı
-import matplotlib
-matplotlib.use('Agg')
-
-logging.getLogger('matplotlib').setLevel(logging.ERROR)
-
-# KÜTÜPHANELER
+import streamlit as st
 import sqlite3
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import yfinance as yf
+import matplotlib.pyplot as plt
 import ta
-import streamlit as st
 
 from sklearn.linear_model import HuberRegressor
 
-# STREAMLIT
-IS_STREAMLIT = True
+# ======================================================
+# SAYFA AYARI
+# ======================================================
+st.set_page_config(
+    page_title="Mobil Borsa",
+    layout="centered"
+)
 
-# =========================================================
+# ======================================================
+# CSS
+# ======================================================
+st.markdown("""
+<style>
+
+.stApp{
+    background-color:#121212;
+    color:white;
+}
+
+div[data-testid="stMetricWidget"]{
+    background-color:#1E1E1E;
+    border:1px solid #2D2D2D;
+    padding:10px;
+    border-radius:10px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ======================================================
 # VERİTABANI
-# =========================================================
+# ======================================================
 class Veritabani:
 
     def __init__(self):
 
-        self.baglanti = sqlite3.connect(
+        self.conn = sqlite3.connect(
             "takip_listesi.db",
-            check_same_thread=False,
-            timeout=10
+            check_same_thread=False
         )
 
-        self.cursor = self.baglanti.cursor()
+        self.cur = self.conn.cursor()
 
-        self.tablo_olustur()
-
-    def tablo_olustur(self):
-
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS watchlist (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                hisse_kodu TEXT UNIQUE,
-                maliyet REAL DEFAULT 0,
-                adet INTEGER DEFAULT 0
-            )
+        self.cur.execute("""
+        CREATE TABLE IF NOT EXISTS watchlist(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hisse TEXT UNIQUE,
+            maliyet REAL,
+            adet INTEGER
+        )
         """)
 
-        self.baglanti.commit()
+        self.conn.commit()
 
-    def hisse_ekle(self, kod, maliyet=0.0, adet=0):
+    def ekle(self, hisse, maliyet, adet):
 
         try:
 
-            self.cursor.execute(
-                """
-                INSERT INTO watchlist
-                (hisse_kodu, maliyet, adet)
-                VALUES (?, ?, ?)
-                """,
-                (kod, maliyet, adet)
-            )
+            self.cur.execute("""
+            INSERT INTO watchlist
+            (hisse,maliyet,adet)
+            VALUES(?,?,?)
+            """,(hisse,maliyet,adet))
 
-            self.baglanti.commit()
+        except:
 
-        except sqlite3.IntegrityError:
+            self.cur.execute("""
+            UPDATE watchlist
+            SET maliyet=?,
+                adet=?
+            WHERE hisse=?
+            """,(maliyet,adet,hisse))
 
-            self.cursor.execute(
-                """
-                UPDATE watchlist
-                SET maliyet = ?, adet = ?
-                WHERE hisse_kodu = ?
-                """,
-                (maliyet, adet, kod)
-            )
+        self.conn.commit()
 
-            self.baglanti.commit()
+    def sil(self,hisse):
 
-    def hisse_sil(self, kod):
+        self.cur.execute("""
+        DELETE FROM watchlist
+        WHERE hisse=?
+        """,(hisse,))
 
-        self.cursor.execute(
-            "DELETE FROM watchlist WHERE hisse_kodu = ?",
-            (kod,)
-        )
+        self.conn.commit()
 
-        self.baglanti.commit()
+    def liste(self):
 
-    def listeyi_getir(self):
+        self.cur.execute("""
+        SELECT hisse,maliyet,adet
+        FROM watchlist
+        """)
 
-        self.cursor.execute(
-            "SELECT hisse_kodu, maliyet, adet FROM watchlist"
-        )
+        return self.cur.fetchall()
 
-        return self.cursor.fetchall()
+db = Veritabani()
 
-# =========================================================
-# BIST LİSTESİ
-# =========================================================
-@st.cache_data(ttl=3600)
-def dinamik_bist_listesi_yukle():
-
-    csv_yolu = "bist_hisseler.csv"
-
-    if os.path.exists(csv_yolu):
-
-        df = pd.read_csv(csv_yolu)
-
-        return df["kod"].tolist()
-
-    return [
-        "THYAO",
-        "ASELS",
-        "KRDMD",
-        "TUPRS",
-        "EREGL",
-        "AKBNK",
-        "SISE",
-        "SASA",
-        "HEKTS"
-    ]
-
-TUM_BIST = dinamik_bist_listesi_yukle()
-
-# =========================================================
+# ======================================================
 # TAHMİN MOTORU
-# =========================================================
-def mobil_tahmin_motoru(df):
-
-    if df is None or df.empty or len(df) < 5:
-        return 0.0, np.zeros(5)
+# ======================================================
+def tahmin_motoru(df):
 
     try:
 
         data = df.tail(60).copy()
 
-        data['gun'] = range(len(data))
+        data["gun"] = range(len(data))
 
-        X_train = data[['gun']]
+        X = data[["gun"]]
 
-        y_train = data['Close'].squeeze()
+        y = data["Close"]
 
-        model = HuberRegressor(max_iter=1000)
+        model = HuberRegressor()
 
-        model.fit(X_train, y_train)
+        model.fit(X,y)
 
-        son_gun = data['gun'].iloc[-1]
+        son = data["gun"].iloc[-1]
 
         gelecek = pd.DataFrame({
-            'gun': range(son_gun + 1, son_gun + 6)
+            "gun":range(son+1,son+6)
         })
 
         tahmin = model.predict(gelecek)
 
-        return tahmin[-1], tahmin
+        return tahmin[-1]
 
     except:
 
-        try:
+        return df["Close"].iloc[-1]
 
-            son = df['Close'].iloc[-1]
+# ======================================================
+# BAŞLIK
+# ======================================================
+st.title("📱 Mobil Borsa")
 
-            return son, np.full(5, son)
+# ======================================================
+# TABLAR
+# ======================================================
+tab1,tab2,tab3 = st.tabs([
+    "💼 Portföy",
+    "📈 Analiz",
+    "🚀 Radar"
+])
 
-        except:
+# ======================================================
+# PORTFÖY
+# ======================================================
+with tab1:
 
-            return 0.0, np.zeros(5)
+    st.subheader("Portföy Yönetimi")
 
-# =========================================================
-# STREAMLIT PANEL
-# =========================================================
-if IS_STREAMLIT:
+    with st.expander("➕ Yeni Hisse Ekle"):
 
-    st.set_page_config(
-        page_title="Mobil Borsa",
-        layout="centered"
-    )
+        with st.form(
+            "ekle_formu",
+            clear_on_submit=True
+        ):
 
-    st.markdown("""
-    <style>
+            hisse = st.text_input(
+                "Hisse Kodu"
+            )
 
-    .stApp {
-        background-color: #121212;
-        color: white;
-    }
+            hisse = hisse.upper().strip()
 
-    div[data-testid="stMetricWidget"] {
-        background-color: #1E1E1E;
-        border-radius: 10px;
-        padding: 10px;
-        border: 1px solid #2D2D2D;
-    }
+            maliyet = st.number_input(
+                "Maliyet",
+                value=0.0,
+                step=0.1
+            )
 
-    </style>
-    """, unsafe_allow_html=True)
+            adet = st.number_input(
+                "Adet",
+                value=0,
+                step=1
+            )
 
-    st.title("📱 Mobil Borsa")
+            kaydet = st.form_submit_button(
+                "Kaydet"
+            )
 
-    db = Veritabani()
+            if kaydet:
 
-    sekme1, sekme2, sekme3 = st.tabs([
-        "PORTFÖY",
-        "ANALİZ",
-        "RADAR"
-    ])
+                if hisse != "":
 
-    # =====================================================
-    # 1. SEKME
-    # =====================================================
-    with sekme1:
-
-        st.subheader("💼 Portföy")
-
-        with st.expander("➕ Yeni Hisse Ekle / Güncelle"):
-
-            with st.form("hisse_formu"):
-
-                yeni_hisse = st.text_input(
-                    "Hisse Kodu (örn: ASELS)"
-                ).upper().strip()
-
-                maliyet = st.number_input(
-                    "Maliyet",
-                    value=0.0,
-                    step=0.1
-                )
-
-                adet = st.number_input(
-                    "Adet",
-                    value=0,
-                    step=1
-                )
-
-                kaydet = st.form_submit_button(
-                    "Kaydet / Güncelle"
-                )
-
-                if kaydet:
-
-                    if yeni_hisse:
-
-                        db.hisse_ekle(
-                            yeni_hisse,
-                            maliyet,
-                            adet
-                        )
-
-                        st.success(
-                            f"{yeni_hisse} kaydedildi!"
-                        )
-
-        hisseler = db.listeyi_getir()
-
-        if not hisseler:
-
-            st.warning("Henüz hisse yok.")
-
-        else:
-
-            for h, maliyet, adet in hisseler:
-
-                sorgu = h + ".IS"
-
-                try:
-
-                    df = yf.download(
-                        sorgu,
-                        period="5d",
-                        interval="1d",
-                        progress=False
+                    db.ekle(
+                        hisse,
+                        maliyet,
+                        adet
                     )
 
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.droplevel(1)
-
-                    if df.empty:
-                        continue
-
-                    fiyat = df['Close'].iloc[-1]
-
-                    if maliyet > 0:
-
-                        degisim = (
-                            (fiyat - maliyet)
-                            / maliyet
-                        ) * 100
-
-                    else:
-
-                        degisim = 0
-
-                    c1, c2 = st.columns([3, 1])
-
-                    c1.metric(
-                        label=h,
-                        value=f"{fiyat:.2f} TL",
-                        delta=f"{degisim:+.2f}%"
+                    st.success(
+                        f"{hisse} kaydedildi"
                     )
 
-                    c1.write(f"Maliyet: {maliyet}")
-                    c1.write(f"Adet: {adet}")
+    hisseler = db.liste()
 
-                    if c2.button("Sil", key=h):
+    if len(hisseler) == 0:
 
-                        db.hisse_sil(h)
+        st.warning("Portföy boş")
 
-                        st.success(f"{h} silindi")
+    else:
 
-                except Exception as e:
-
-                    st.error(f"{h} hata: {e}")
-
-    # =====================================================
-    # 2. SEKME
-    # =====================================================
-    with sekme2:
-
-        st.subheader("📈 Hisse Analizi")
-
-        hisse_kodu = st.text_input(
-            "Hisse Kodu"
-        ).upper().strip()
-
-        if hisse_kodu:
+        for hisse,maliyet,adet in hisseler:
 
             try:
 
-                sorgu = hisse_kodu + ".IS"
+                kod = hisse + ".IS"
 
                 df = yf.download(
-                    sorgu,
-                    period="60d",
+                    kod,
+                    period="5d",
                     interval="1d",
                     progress=False
                 )
 
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.droplevel(1)
-
                 if df.empty:
+                    continue
 
-                    st.error("Veri bulunamadı")
+                fiyat = float(df["Close"].iloc[-1])
 
-                else:
+                degisim = 0
 
-                    kapanis = df['Close']
+                if maliyet > 0:
 
-                    son_fiyat = kapanis.iloc[-1]
+                    degisim = (
+                        (fiyat-maliyet)
+                        / maliyet
+                    ) * 100
 
-                    hedef, tahmin = mobil_tahmin_motoru(df)
+                c1,c2 = st.columns([4,1])
 
-                    rsi = ta.momentum.rsi(
-                        kapanis,
-                        window=14
-                    ).iloc[-1]
+                c1.metric(
+                    hisse,
+                    f"{fiyat:.2f} TL",
+                    f"{degisim:+.2f}%"
+                )
 
-                    macd_obj = ta.trend.MACD(kapanis)
+                c1.write(f"Maliyet: {maliyet}")
+                c1.write(f"Adet: {adet}")
 
-                    macd = macd_obj.macd().iloc[-1]
+                if c2.button(
+                    "Sil",
+                    key=hisse
+                ):
 
-                    macd_signal = macd_obj.macd_signal().iloc[-1]
+                    db.sil(hisse)
 
-                    if rsi < 42 and macd > macd_signal:
-                        sinyal = "AL"
-
-                    elif rsi > 70:
-                        sinyal = "SAT"
-
-                    else:
-                        sinyal = "TUT"
-
-                    st.metric(
-                        hisse_kodu,
-                        f"{son_fiyat:.2f} TL",
-                        sinyal
+                    st.success(
+                        f"{hisse} silindi"
                     )
 
-                    st.write(f"RSI: {rsi:.2f}")
-
-                    st.write(
-                        f"YZ Tahmin: {hedef:.2f} TL"
-                    )
-
-                    fig, ax = plt.subplots(
-                        figsize=(6, 3)
-                    )
-
-                    ax.plot(
-                        kapanis.tail(30).values
-                    )
-
-                    ax.grid(True)
-
-                    st.pyplot(fig)
+                    st.rerun()
 
             except Exception as e:
 
-                st.error(f"Hata: {e}")
+                st.error(e)
 
-    # =====================================================
-    # 3. SEKME
-    # =====================================================
-    with sekme3:
+# ======================================================
+# ANALİZ
+# ======================================================
+with tab2:
 
-        st.subheader("🚀 Mega Radar")
+    st.subheader("Hisse Analizi")
 
-        st.write(
-            "AL sinyali veren hisseler taranır."
-        )
+    analiz_hisse = st.text_input(
+        "Hisse Giriniz"
+    )
 
-        if st.button("Taramayı Başlat"):
+    analiz_hisse = analiz_hisse.upper().strip()
 
-            bulunanlar = []
+    if analiz_hisse != "":
 
-            bar = st.progress(0)
+        try:
 
-            durum = st.empty()
+            kod = analiz_hisse + ".IS"
 
-            toplam = len(TUM_BIST)
+            df = yf.download(
+                kod,
+                period="60d",
+                interval="1d",
+                progress=False
+            )
 
-            for idx, hisse in enumerate(TUM_BIST):
+            if not df.empty:
 
-                durum.text(
-                    f"Taranıyor: {hisse}"
+                kapanis = df["Close"]
+
+                son_fiyat = float(
+                    kapanis.iloc[-1]
                 )
 
-                oran = (idx + 1) / toplam
+                rsi = ta.momentum.rsi(
+                    kapanis,
+                    window=14
+                ).iloc[-1]
 
-                bar.progress(oran)
-
-                try:
-
-                    df = yf.download(
-                        hisse + ".IS",
-                        period="40d",
-                        interval="1d",
-                        progress=False
-                    )
-
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.droplevel(1)
-
-                    if df.empty:
-                        continue
-
-                    kapanis = df['Close']
-
-                    rsi = ta.momentum.rsi(
-                        kapanis,
-                        window=14
-                    ).iloc[-1]
-
-                    macd_obj = ta.trend.MACD(kapanis)
-
-                    macd = macd_obj.macd().iloc[-1]
-
-                    macd_signal = macd_obj.macd_signal().iloc[-1]
-
-                    if rsi < 42 and macd > macd_signal:
-
-                        bulunanlar.append(hisse)
-
-                except:
-                    pass
-
-            bar.empty()
-
-            durum.text("Tarama tamamlandı")
-
-            if bulunanlar:
-
-                st.success(
-                    f"{len(bulunanlar)} hisse bulundu"
+                macd_obj = ta.trend.MACD(
+                    kapanis
                 )
 
-                st.write(", ".join(bulunanlar))
+                macd = macd_obj.macd().iloc[-1]
 
-            else:
+                signal = macd_obj.macd_signal().iloc[-1]
 
-                st.warning(
-                    "Sinyal veren hisse bulunamadı"
+                tahmin = tahmin_motoru(df)
+
+                if rsi < 42 and macd > signal:
+
+                    durum = "AL"
+
+                elif rsi > 70:
+
+                    durum = "SAT"
+
+                else:
+
+                    durum = "TUT"
+
+                st.metric(
+                    analiz_hisse,
+                    f"{son_fiyat:.2f} TL",
+                    durum
                 )
+
+                st.write(f"RSI: {rsi:.2f}")
+
+                st.write(
+                    f"YZ Tahmin: {tahmin:.2f} TL"
+                )
+
+                fig,ax = plt.subplots(
+                    figsize=(6,3)
+                )
+
+                ax.plot(
+                    kapanis.tail(30).values
+                )
+
+                ax.grid(True)
+
+                st.pyplot(fig)
+
+        except Exception as e:
+
+            st.error(e)
+
+# ======================================================
+# RADAR
+# ======================================================
+with tab3:
+
+    st.subheader("Mega Radar")
+
+    bist = [
+        "THYAO",
+        "ASELS",
+        "KRDMD",
+        "SASA",
+        "HEKTS",
+        "SISE",
+        "AKBNK",
+        "TUPRS",
+        "EREGL"
+    ]
+
+    if st.button("Taramayı Başlat"):
+
+        bulunan = []
+
+        progress = st.progress(0)
+
+        durum = st.empty()
+
+        toplam = len(bist)
+
+        for i,hisse in enumerate(bist):
+
+            durum.text(
+                f"Taranıyor: {hisse}"
+            )
+
+            progress.progress(
+                (i+1)/toplam
+            )
+
+            try:
+
+                df = yf.download(
+                    hisse + ".IS",
+                    period="40d",
+                    interval="1d",
+                    progress=False
+                )
+
+                if df.empty:
+                    continue
+
+                kapanis = df["Close"]
+
+                rsi = ta.momentum.rsi(
+                    kapanis,
+                    window=14
+                ).iloc[-1]
+
+                macd_obj = ta.trend.MACD(
+                    kapanis
+                )
+
+                macd = macd_obj.macd().iloc[-1]
+
+                signal = macd_obj.macd_signal().iloc[-1]
+
+                if rsi < 42 and macd > signal:
+
+                    bulunan.append(hisse)
+
+            except:
+                pass
+
+        progress.empty()
+
+        if len(bulunan) > 0:
+
+            st.success(
+                f"{len(bulunan)} hisse bulundu"
+            )
+
+            st.write(
+                ", ".join(bulunan)
+            )
+
+        else:
+
+            st.warning(
+                "Sinyal bulunamadı"
+            )
+
 
