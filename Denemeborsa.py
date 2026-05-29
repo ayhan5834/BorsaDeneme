@@ -368,4 +368,4 @@ if IS_STREAMLIT:
                     st.write(", ".join(bulunanlar))
                 else:
                     st.warning("Şu an AL sinyali veren hisse bulunamadı.")
-  
+
