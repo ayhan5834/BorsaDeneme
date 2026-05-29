@@ -4,6 +4,7 @@ Created on Fri May 29 15:42:45 2026
 
 @author: EmirAysu
 """
+
 import os
 import sys
 import logging
@@ -806,8 +807,11 @@ if not IS_STREAMLIT:
                     QApplication.processEvents()
                     ticker = yf.Ticker(sorgu_kodu)
                     hist = ticker.history(period="1d")
-                    if isinstance(hist.columns, pd.MultiIndex): hist.columns = hist.columns.droplevel(1)
                     
+                    # --- MULTIINDEX KORUMASI BURAYA DA EKLENDİ ---
+                    if isinstance(hist.columns, pd.MultiIndex): 
+                        hist.columns = hist.columns.droplevel(1)
+                        
                     if hist is not None and not hist.empty and len(hist) > 0:
                         yeni_fiyat = hist['Close'].squeeze().iloc[-1]
                         self.lbl_fiyat.setText(f"{yeni_fiyat:,.2f} TL".replace(",", "X").replace(".", ",").replace("X", "."))
