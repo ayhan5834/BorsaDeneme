@@ -48,6 +48,7 @@ div[data-testid="stMetricWidget"]{
 # ======================================================
 # VERİTABANI
 # ======================================================
+```python id="2by90o"
 class Veritabani:
 
     def __init__(self):
@@ -59,25 +60,51 @@ class Veritabani:
 
         self.cur = self.conn.cursor()
 
-        self.tablo_olustur()
+        self.tablo_kontrol()
 
-    def tablo_olustur(self):
+    def tablo_kontrol(self):
 
-        self.cur.execute("""
-        CREATE TABLE IF NOT EXISTS watchlist(
+        try:
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            self.cur.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist(
 
-            hisse TEXT UNIQUE,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-            maliyet REAL DEFAULT 0,
+                hisse TEXT UNIQUE,
 
-            adet INTEGER DEFAULT 0
+                maliyet REAL DEFAULT 0,
 
-        )
-        """)
+                adet INTEGER DEFAULT 0
 
-        self.conn.commit()
+            )
+            """)
+
+            self.conn.commit()
+
+        except:
+
+            self.cur.execute("""
+            DROP TABLE IF EXISTS watchlist
+            """)
+
+            self.conn.commit()
+
+            self.cur.execute("""
+            CREATE TABLE watchlist(
+
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                hisse TEXT UNIQUE,
+
+                maliyet REAL DEFAULT 0,
+
+                adet INTEGER DEFAULT 0
+
+            )
+            """)
+
+            self.conn.commit()
 
     def ekle(self,hisse,maliyet,adet):
 
@@ -111,12 +138,28 @@ class Veritabani:
 
     def liste(self):
 
-        self.cur.execute("""
-        SELECT hisse,maliyet,adet
-        FROM watchlist
-        """)
+        try:
 
-        return self.cur.fetchall()
+            self.cur.execute("""
+            SELECT hisse,maliyet,adet
+            FROM watchlist
+            """)
+
+            return self.cur.fetchall()
+
+        except:
+
+            self.cur.execute("""
+            DROP TABLE IF EXISTS watchlist
+            """)
+
+            self.conn.commit()
+
+            self.tablo_kontrol()
+
+            return []
+```
+
 
 # ======================================================
 # VERİTABANI NESNESİ
