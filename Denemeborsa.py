@@ -5,15 +5,14 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
-
-
+```python
 import streamlit as st
 import sqlite3
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import yfinance as yf
-import matplotlib.pyplot as plt
 import ta
+import matplotlib.pyplot as plt
 
 from sklearn.linear_model import HuberRegressor
 
@@ -39,8 +38,8 @@ st.markdown("""
 div[data-testid="stMetricWidget"]{
     background-color:#1E1E1E;
     border:1px solid #2D2D2D;
-    padding:10px;
     border-radius:10px;
+    padding:10px;
 }
 
 </style>
@@ -60,18 +59,27 @@ class Veritabani:
 
         self.cur = self.conn.cursor()
 
+        self.tablo_olustur()
+
+    def tablo_olustur(self):
+
         self.cur.execute("""
         CREATE TABLE IF NOT EXISTS watchlist(
+
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             hisse TEXT UNIQUE,
-            maliyet REAL,
-            adet INTEGER
+
+            maliyet REAL DEFAULT 0,
+
+            adet INTEGER DEFAULT 0
+
         )
         """)
 
         self.conn.commit()
 
-    def ekle(self, hisse, maliyet, adet):
+    def ekle(self,hisse,maliyet,adet):
 
         try:
 
@@ -81,7 +89,7 @@ class Veritabani:
             VALUES(?,?,?)
             """,(hisse,maliyet,adet))
 
-        except:
+        except sqlite3.IntegrityError:
 
             self.cur.execute("""
             UPDATE watchlist
@@ -110,10 +118,13 @@ class Veritabani:
 
         return self.cur.fetchall()
 
+# ======================================================
+# VERİTABANI NESNESİ
+# ======================================================
 db = Veritabani()
 
 # ======================================================
-# TAHMİN MOTORU
+# YAPAY ZEKA TAHMİN
 # ======================================================
 def tahmin_motoru(df):
 
@@ -131,10 +142,10 @@ def tahmin_motoru(df):
 
         model.fit(X,y)
 
-        son = data["gun"].iloc[-1]
+        son_gun = data["gun"].iloc[-1]
 
         gelecek = pd.DataFrame({
-            "gun":range(son+1,son+6)
+            "gun":range(son_gun+1,son_gun+6)
         })
 
         tahmin = model.predict(gelecek)
@@ -151,7 +162,7 @@ def tahmin_motoru(df):
 st.title("📱 Mobil Borsa")
 
 # ======================================================
-# TABLAR
+# TABS
 # ======================================================
 tab1,tab2,tab3 = st.tabs([
     "💼 Portföy",
@@ -166,10 +177,10 @@ with tab1:
 
     st.subheader("Portföy Yönetimi")
 
-    with st.expander("➕ Yeni Hisse Ekle"):
+    with st.expander("➕ Hisse Ekle"):
 
         with st.form(
-            "ekle_formu",
+            "hisse_formu",
             clear_on_submit=True
         ):
 
@@ -181,12 +192,14 @@ with tab1:
 
             maliyet = st.number_input(
                 "Maliyet",
+                min_value=0.0,
                 value=0.0,
                 step=0.1
             )
 
             adet = st.number_input(
                 "Adet",
+                min_value=0,
                 value=0,
                 step=1
             )
@@ -233,7 +246,9 @@ with tab1:
                 if df.empty:
                     continue
 
-                fiyat = float(df["Close"].iloc[-1])
+                fiyat = float(
+                    df["Close"].iloc[-1]
+                )
 
                 degisim = 0
 
@@ -252,8 +267,13 @@ with tab1:
                     f"{degisim:+.2f}%"
                 )
 
-                c1.write(f"Maliyet: {maliyet}")
-                c1.write(f"Adet: {adet}")
+                c1.write(
+                    f"Maliyet: {maliyet}"
+                )
+
+                c1.write(
+                    f"Adet: {adet}"
+                )
 
                 if c2.button(
                     "Sil",
@@ -261,10 +281,6 @@ with tab1:
                 ):
 
                     db.sil(hisse)
-
-                    st.success(
-                        f"{hisse} silindi"
-                    )
 
                     st.rerun()
 
@@ -279,17 +295,17 @@ with tab2:
 
     st.subheader("Hisse Analizi")
 
-    analiz_hisse = st.text_input(
-        "Hisse Giriniz"
+    analiz = st.text_input(
+        "Hisse Kodu Giriniz"
     )
 
-    analiz_hisse = analiz_hisse.upper().strip()
+    analiz = analiz.upper().strip()
 
-    if analiz_hisse != "":
+    if analiz != "":
 
         try:
 
-            kod = analiz_hisse + ".IS"
+            kod = analiz + ".IS"
 
             df = yf.download(
                 kod,
@@ -334,12 +350,14 @@ with tab2:
                     durum = "TUT"
 
                 st.metric(
-                    analiz_hisse,
+                    analiz,
                     f"{son_fiyat:.2f} TL",
                     durum
                 )
 
-                st.write(f"RSI: {rsi:.2f}")
+                st.write(
+                    f"RSI: {rsi:.2f}"
+                )
 
                 st.write(
                     f"YZ Tahmin: {tahmin:.2f} TL"
@@ -369,6 +387,7 @@ with tab3:
     st.subheader("Mega Radar")
 
     bist = [
+
         "THYAO",
         "ASELS",
         "KRDMD",
@@ -378,6 +397,7 @@ with tab3:
         "AKBNK",
         "TUPRS",
         "EREGL"
+
     ]
 
     if st.button("Taramayı Başlat"):
@@ -449,7 +469,8 @@ with tab3:
         else:
 
             st.warning(
-                "Sinyal bulunamadı"
+                "Sinyal veren hisse yok"
             )
+```
 
-
+ 
