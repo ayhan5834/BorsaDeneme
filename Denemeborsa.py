@@ -8,14 +8,19 @@ Created on Fri May 29 15:42:45 2026
 
 import os
 import sys
+import logging
 import sqlite3
 import pandas as pd
 import numpy as np
+import matplotlib  # ÖNCE BU
+matplotlib.use('Agg') # SONRA BU
 import matplotlib.pyplot as plt
 import yfinance as yf
 import ta
 import streamlit as st
 from sklearn.linear_model import HuberRegressor
+
+# Artık alt satırlarda kodunuzu tanımlayabilirsiniz...
 
 # Matplotlib ayarı
 matplotlib.use('Agg')
