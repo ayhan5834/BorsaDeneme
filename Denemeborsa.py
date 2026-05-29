@@ -5,7 +5,7 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
-```python
+
 import streamlit as st
 import sqlite3
 import yfinance as yf
@@ -471,6 +471,6 @@ with tab3:
             st.warning(
                 "Sinyal veren hisse yok"
             )
-```
+
 
  
