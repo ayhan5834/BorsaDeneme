@@ -212,7 +212,7 @@ with sekme1:
                     """, unsafe_allow_html=True)
 
                 with col_btn:
-                    with st.popover(".."):
+                    with st.popover(" "):
                         if st.button("📊 Grafik", key=f"gr_{h}"):
                             st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
                             st.rerun()
