@@ -167,20 +167,9 @@ if IS_STREAMLIT:
             for h, maliyet, adet in hisseler:
                 sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
                 try:
-                    
-                    try:
-                        df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
-                        if df.empty:
-                             st.write(f"DEBUG: {sorgu_kodu} için veri gelmedi.")
-                             kartlar_verisi.append((h, 0.0, "Veri Yok", adet, 0.0, "HATA", "#FF9800"))
-                        else:
-                            bugun_fiyat = df['Close'].squeeze().iloc[-1]
-        # ... geri kalanı
-                  except Exception as e:
-                  st.write(f"DEBUG HATA: {e}")
-    
-       
-   
+                    # Mevcut: period="2d", interval="1d"
+                    # Önerilen: period="1d", interval="5m" (Son 1 günün, 5 dakikalık verileri)
+                    df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False) 
     
                     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                     
