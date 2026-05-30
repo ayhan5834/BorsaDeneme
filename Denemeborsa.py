@@ -250,8 +250,8 @@ with sekme1:
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
+        # 1. ADIM: Verileri indir ve hacimleri hesapla (Döngü)
         for h, maliyet, adet in hisseler:
-
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
 
             try:
@@ -268,21 +268,15 @@ with sekme1:
 
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
-
                     toplam_maliyet_hacmi += maliyet * adet
                     toplam_guncel_hacim += bugun_fiyat * adet
-
                 else:
                     dun_fiyat = (
                         df["Close"].squeeze().iloc[-2]
                         if len(df) >= 2
                         else bugun_fiyat
                     )
-
-                    degisim = (
-                        (bugun_fiyat - dun_fiyat)
-                        / dun_fiyat
-                    ) * 100
+                    degisim = ((bugun_fiyat - dun_fiyat) / dun_fiyat) * 100
 
                 kartlar_verisi.append(
                     (h, bugun_fiyat, maliyet, adet, degisim)
@@ -291,8 +285,8 @@ with sekme1:
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
+        # 2. ADIM: Toplam Kasa ve Net Durum Kartı (Döngü BİTTİKTEN SONRA)
         if toplam_maliyet_hacmi > 0:
-
             toplam_kar_zarar_yuzde = (
                 (toplam_guncel_hacim - toplam_maliyet_hacmi)
                 / toplam_maliyet_hacmi
@@ -315,68 +309,92 @@ with sekme1:
                     ">
                         Kasa: {toplam_maliyet_hacmi:,.2f} TL
                     </span>
-
                     <br>
-
                     <span style="
                         color:{'#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'};
                         font-weight:bold;
                         font-size:14px;
                     ">
-                        Net Durum:
-                        %{toplam_kar_zarar_yuzde:+,.2f}
+                        Net Durum: %{toplam_kar_zarar_yuzde:+,.2f}
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+        # 3. ADIM: Kartları ve Grafikleri Ekrana Basma (Yeni Döngü)
+        for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
+            fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
+
+            renk_kz = (
+                "#2ECC71" if degisim > 0
+                else "#E74C3C" if degisim < 0
+                else "#FFFFFF"
+            )
+
+            durum_gosterim = f"%{degisim:+.2f}"
+
+            st.markdown(
+                f"""
+                <div style="
+                    display:flex;
+                    justify-content:space-between;
+                    align-items:center;
+                    background-color:#1E1E1E;
+                    border:1px solid #2D2D2D;
+                    border-radius:8px;
+                    padding:8px 12px;
+                    margin-bottom:6px;
+                ">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="color:#00F0FF;font-weight:bold;">
+                            {h}
+                        </span>
+                    </div>
+                    <span style="color:white;">
+                        {fiyat_gosterim}
+                    </span>
+                    <span style="
+                        color:{renk_kz};
+                        font-weight:bold;
+                    ">
+                        {durum_gosterim}
                     </span>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-        # Başlık satırı
-        col1, col2, col3 = st.columns(3)
-        col1.write("AAA")
-        col2.write("BBB")
-        col3.write("CCC")
+            # Grafik (TEK BLOK)
+            if st.session_state.get("grafik_aktif_hisse") == h:
+                df_graf = grafik_verisi_indir(h + ".IS")
 
+                if not df_graf.empty:
+                    if isinstance(df_graf.columns, pd.MultiIndex):
+                        df_graf.columns = df_graf.columns.droplevel(1)
 
-
-
-        # Grafik (TEK BLOK)
-        if st.session_state.get("grafik_aktif_hisse") == h:
-
-            df_graf = grafik_verisi_indir(h + ".IS")
-
-            if not df_graf.empty:
-
-                if isinstance(df_graf.columns, pd.MultiIndex):
-                    df_graf.columns = df_graf.columns.droplevel(1)
-
-                fig = go.Figure(
-                    data=[
-                        go.Candlestick(
-                            x=df_graf.index,
-                            open=df_graf["Open"],
-                            high=df_graf["High"],
-                            low=df_graf["Low"],
-                            close=df_graf["Close"]
-                        )
-                    ]
-                )
-
-                fig.update_layout(
-                    template="plotly_dark",
-                    height=250,
-                    margin=dict(
-                        l=0,
-                        r=0,
-                        t=10,
-                        b=0
+                    fig = go.Figure(
+                        data=[
+                            go.Candlestick(
+                                x=df_graf.index,
+                                open=df_graf["Open"],
+                                high=df_graf["High"],
+                                low=df_graf["Low"],
+                                close=df_graf["Close"]
+                            )
+                        ]
                     )
-                )
 
-                st.plotly_chart(
-                    fig,
-                    use_container_width=True
-                )
+                    fig.update_layout(
+                        template="plotly_dark",
+                        height=250,
+                        margin=dict(l=0, r=0, t=10, b=0)
+                    )
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True
+                    )
 
     st.write("")
 
