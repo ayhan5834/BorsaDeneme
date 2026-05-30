@@ -250,7 +250,7 @@ with sekme1:
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
-        # 1. ADIM: Verileri indir ve hacimleri hesapla (Döngü)
+        # 1. ADIM: Verileri indir ve hacimleri hesapla
         for h, maliyet, adet in hisseler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
 
@@ -285,46 +285,24 @@ with sekme1:
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
-        # 2. ADIM: Toplam Kasa ve Net Durum Kartı (Döngü BİTTİKTEN SONRA)
+        # 2. ADIM: Üst Özet Bilgi (Kutular kaldırıldı, sade metin yapıldı)
         if toplam_maliyet_hacmi > 0:
             toplam_kar_zarar_yuzde = (
                 (toplam_guncel_hacim - toplam_maliyet_hacmi)
                 / toplam_maliyet_hacmi
             ) * 100
 
-            st.markdown(
-                f"""
-                <div style="
-                    background-color:#1E1E1E;
-                    padding:15px;
-                    border-radius:10px;
-                    border:1px solid #2D2D2D;
-                    text-align:center;
-                    margin-bottom:10px;
-                ">
-                    <span style="
-                        color:#00F0FF;
-                        font-weight:bold;
-                        font-size:16px;
-                    ">
-                        Kasa: {toplam_maliyet_hacmi:,.2f} TL
-                    </span>
-                    <br>
-                    <span style="
-                        color:{'#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'};
-                        font-weight:bold;
-                        font-size:14px;
-                    ">
-                        Net Durum: %{toplam_kar_zarar_yuzde:+,.2f}
-                    </span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            renk_kasa = '#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'
             
-        # 3. ADIM: Kartları ve Grafikleri Ekrana Basma (Yeni Döngü)
+            # Üst tarafa sade bir başlık ve durum yazısı
+            st.subheader("📊 Portföy Özet Durumu")
+            st.markdown(f"**Kasa:** {toplam_maliyet_hacmi:,.2f} TL")
+            st.markdown(f"**Net Durum:** <span style='color:{renk_kasa}; font-weight:bold;'>%{toplam_kar_zarar_yuzde:+,.2f}</span>", unsafe_allow_html=True)
+            st.write("---") # Araya ince bir çizgi
+            
+        # 3. ADIM: Hisse Listesi (Kutular kaldırıldı, yan yana sade yazılar yapıldı)
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
-            fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
+            fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
 
             renk_kz = (
                 "#2ECC71" if degisim > 0
@@ -334,36 +312,14 @@ with sekme1:
 
             durum_gosterim = f"%{degisim:+.2f}"
 
-            st.markdown(
-                f"""
-                <div style="
-                    display:flex;
-                    justify-content:space-between;
-                    align-items:center;
-                    background-color:#1E1E1E;
-                    border:1px solid #2D2D2D;
-                    border-radius:8px;
-                    padding:8px 12px;
-                    margin-bottom:6px;
-                ">
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span style="color:#00F0FF;font-weight:bold;">
-                            {h}
-                        </span>
-                    </div>
-                    <span style="color:white;">
-                        {fiyat_gosterim}
-                    </span>
-                    <span style="
-                        color:{renk_kz};
-                        font-weight:bold;
-                    ">
-                        {durum_gosterim}
-                    </span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            # Streamlit columns kullanarak verileri kutusuz, tertemiz yan yana diziyoruz
+            c1, c2, c3 = st.columns([2, 2, 2])
+            with c1:
+                st.markdown(f"**{h}**")
+            with c2:
+                st.write(fiyat_gosterim)
+            with c3:
+                st.markdown(f"<span style='color:{renk_kz}; font-weight:bold;'>{durum_gosterim}</span>", unsafe_allow_html=True)
 
             # Grafik (TEK BLOK)
             if st.session_state.get("grafik_aktif_hisse") == h:
@@ -395,6 +351,8 @@ with sekme1:
                         fig,
                         use_container_width=True
                     )
+            
+            st.write("---") # Her hisse senedinin altına ince bir ayıraç çizgi atar
 
     st.write("")
 
