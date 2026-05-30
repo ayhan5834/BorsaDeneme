@@ -167,7 +167,9 @@ if IS_STREAMLIT:
             for h, maliyet, adet in hisseler:
                 sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
                 try:
-                    df = yf.download(sorgu_kodu, period="2d", interval="1d", progress=False)
+                    
+                    # Önerilen: period="1d", interval="5m" (Son 1 günün, 5 dakikalık verileri)
+                    df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
                     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                     
                     if df is None or df.empty or len(df) == 0:
