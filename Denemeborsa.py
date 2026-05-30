@@ -26,7 +26,7 @@ logging.getLogger('matplotlib').setLevel(logging.ERROR)
 # ==============================================================================
 # STREAMLIT SAYFA AYARLARI (Mobilde tam ekran deneyimi için en üste alınmalı)
 # ==============================================================================
-st.set_page_config(page_title="Mobil Borsam", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
 # ==============================================================================
 # 1. VERİTABANI SINIFI
