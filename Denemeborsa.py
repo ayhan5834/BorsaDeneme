@@ -193,7 +193,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📱 Mobil Borsa")
+st.title("📱 Mobil Borsalar")
 db = Veritabani()
 
 # Oturum Durum Yönetimleri
