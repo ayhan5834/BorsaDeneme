@@ -217,111 +217,270 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 # --- 1. SEKME: PORTFÖY ---
 with sekme1:
     hisseler = db.listeyi_getir()
-    
+
     with st.expander("➕ Yeni Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
             yeni_hisse = st.text_input("Hisse Kodu (örn: ASELS)").upper().strip()
+
             col_maliyet, col_adet = st.columns(2)
-            maliyet = col_maliyet.number_input("Maliyet", value=0.0, step=0.1)
-            adet = col_adet.number_input("Adet", value=0, step=1)
+
+            maliyet = col_maliyet.number_input(
+                "Maliyet",
+                value=0.0,
+                step=0.1
+            )
+
+            adet = col_adet.number_input(
+                "Adet",
+                value=0,
+                step=1
+            )
+
             kaydet_butonu = st.form_submit_button("Kaydet")
-            
-            if kaydet_butonu:
-                if yeni_hisse:
-                    db.hisse_ekle(yeni_hisse, maliyet, adet)
-                    st.rerun()
+
+            if kaydet_butonu and yeni_hisse:
+                db.hisse_ekle(yeni_hisse, maliyet, adet)
+                st.rerun()
 
     if not hisseler:
         st.warning("Henüz takip listesinde hisse yok.")
+
     else:
         toplam_maliyet_hacmi = 0.0
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
-        
+
         for h, maliyet, adet in hisseler:
+
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
+
             try:
                 df = guncel_fiyat_indir(sorgu_kodu)
-                if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-                
+
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.droplevel(1)
+
                 if df is None or df.empty:
                     kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
                     continue
-                    
-                bugun_fiyat = df['Close'].squeeze().iloc[-1]
+
+                bugun_fiyat = df["Close"].squeeze().iloc[-1]
+
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
-                    toplam_maliyet_hacmi += (maliyet * adet)
-                    toplam_guncel_hacim += (bugun_fiyat * adet)
+
+                    toplam_maliyet_hacmi += maliyet * adet
+                    toplam_guncel_hacim += bugun_fiyat * adet
+
                 else:
-                    dun_fiyat = df['Close'].squeeze().iloc[-2] if len(df) >= 2 else bugun_fiyat
-                    degisim = ((bugun_fiyat - dun_fiyat) / dun_fiyat) * 100
-                
-                kartlar_verisi.append((h, bugun_fiyat, maliyet, adet, degisim))
+                    dun_fiyat = (
+                        df["Close"].squeeze().iloc[-2]
+                        if len(df) >= 2
+                        else bugun_fiyat
+                    )
+
+                    degisim = (
+                        (bugun_fiyat - dun_fiyat)
+                        / dun_fiyat
+                    ) * 100
+
+                kartlar_verisi.append(
+                    (h, bugun_fiyat, maliyet, adet, degisim)
+                )
+
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
-        
+
         if toplam_maliyet_hacmi > 0:
-            toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
-            st.markdown(f"""
-            <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 10px;'>
-                <span style='color: #00F0FF; font-weight: bold; font-size: 16px;'>Kasa: {toplam_maliyet_hacmi:,.2f} TL</span><br>
-                <span style='color: {'#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'}; font-weight: bold; font-size: 14px;'>
-                    Net Durum: %{toplam_kar_zarar_yuzde:+,.2f}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.write("Hisse | Fiyat | K/Z")
-        with hdr_kod: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Hisse</b>", unsafe_allow_html=True)
-        with hdr_fiyat: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>", unsafe_allow_html=True)
-        with hdr_durum: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>", unsafe_allow_html=True)
-        st.markdown("<hr style='margin: 8px 0; border-color: #2D2D2D;'>", unsafe_allow_html=True)
 
-        
+            toplam_kar_zarar_yuzde = (
+                (toplam_guncel_hacim - toplam_maliyet_hacmi)
+                / toplam_maliyet_hacmi
+            ) * 100
 
-        
-        with st.container():
+            st.markdown(
+                f"""
+                <div style="
+                    background-color:#1E1E1E;
+                    padding:15px;
+                    border-radius:10px;
+                    border:1px solid #2D2D2D;
+                    text-align:center;
+                    margin-bottom:10px;
+                ">
+                    <span style="
+                        color:#00F0FF;
+                        font-weight:bold;
+                        font-size:16px;
+                    ">
+                        Kasa: {toplam_maliyet_hacmi:,.2f} TL
+                    </span>
 
-                col_kod, col_fiyat, col_durum = st.columns([2, 2, 2])
+                    <br>
 
-                with col_kod:
-                    st.markdown(
-                        f"<span style='font-weight:bold;color:#00F0FF'>{h}</span>",
-                        unsafe_allow_html=True
-                    )
+                    <span style="
+                        color:{'#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'};
+                        font-weight:bold;
+                        font-size:14px;
+                    ">
+                        Net Durum:
+                        %{toplam_kar_zarar_yuzde:+,.2f}
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
-                    with st.popover("⚙️"):
-                        if st.button("Analiz/Grafik", key=f"gr_{h}"):
-                            st.session_state["grafik_aktif_hisse"] = (
-                                None if st.session_state.get("grafik_aktif_hisse") == h else h
-                            )
-                            st.rerun()
+        # Başlık satırı
+        hdr_btn, hdr_kod, hdr_fiyat, hdr_durum = st.columns(
+            [0.6, 1.6, 1.4, 1.4]
+        )
 
-                        if st.button("Listeden Çıkar", key=f"del_{h}"):
-                            db.hisse_sil(h)
-                            st.rerun()
+        with hdr_kod:
+            st.markdown(
+                "<b style='color:#AAAAAA;'>Hisse</b>",
+                unsafe_allow_html=True
+            )
 
-                with col_fiyat:
-                    st.write(fiyat_gosterim)
+        with hdr_fiyat:
+            st.markdown(
+                "<b style='color:#AAAAAA;'>Fiyat</b>",
+                unsafe_allow_html=True
+            )
 
-                with col_durum:
-                    st.markdown(
-                        f"<span style='color:{renk_kz};font-weight:bold'>{durum_gosterim}</span>",
-                        unsafe_allow_html=True
-                    )
+        with hdr_durum:
+            st.markdown(
+                "<b style='color:#AAAAAA;'>K/Z</b>",
+                unsafe_allow_html=True
+            )
 
-            # Grafik mobilde daha küçük marginlerle gösterilir
+        st.divider()
+
+        for h, fiyat, m, adet, degisim in kartlar_verisi:
+
+            fiyat_gosterim = (
+                f"{fiyat:.2f}"
+                if fiyat > 0
+                else "--"
+            )
+
+            renk_kz = (
+                "#2ECC71"
+                if degisim > 0
+                else "#E74C3C"
+                if degisim < 0
+                else "#FFFFFF"
+            )
+
+            durum_gosterim = f"%{degisim:+.2f}"
+
+            col_btn, col_kod, col_fiyat, col_durum = st.columns(
+                [0.6, 1.6, 1.4, 1.4]
+            )
+
+            with col_btn:
+                with st.popover("⚙️"):
+
+                    if st.button(
+                        "Analiz/Grafik",
+                        key=f"gr_{h}"
+                    ):
+                        st.session_state["grafik_aktif_hisse"] = (
+                            None
+                            if st.session_state.get(
+                                "grafik_aktif_hisse"
+                            ) == h
+                            else h
+                        )
+                        st.rerun()
+
+                    if st.button(
+                        "Listeden Çıkar",
+                        key=f"del_{h}"
+                    ):
+                        db.hisse_sil(h)
+                        st.rerun()
+
+            with col_kod:
+                st.markdown(
+                    f"""
+                    <span style="
+                        color:#00F0FF;
+                        font-weight:bold;
+                    ">
+                        {h}
+                    </span>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            with col_fiyat:
+                st.markdown(
+                    f"""
+                    <span style="font-size:13px;">
+                        {fiyat_gosterim}
+                    </span>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            with col_durum:
+                st.markdown(
+                    f"""
+                    <span style="
+                        color:{renk_kz};
+                        font-weight:bold;
+                    ">
+                        {durum_gosterim}
+                    </span>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            # Grafik (TEK BLOK)
             if st.session_state.get("grafik_aktif_hisse") == h:
+
                 df_graf = grafik_verisi_indir(h + ".IS")
+
                 if not df_graf.empty:
-                    if isinstance(df_graf.columns, pd.MultiIndex): df_graf.columns = df_graf.columns.droplevel(1)
-                    fig = go.Figure(data=[go.Candlestick(x=df_graf.index, open=df_graf['Open'], high=df_graf['High'], low=df_graf['Low'], close=df_graf['Close'])])
-                    fig.update_layout(template="plotly_dark", height=250, margin=dict(l=0, r=0, t=10, b=0))
-                    st.plotly_chart(fig, use_container_width=True)
+
+                    if isinstance(df_graf.columns, pd.MultiIndex):
+                        df_graf.columns = df_graf.columns.droplevel(1)
+
+                    fig = go.Figure(
+                        data=[
+                            go.Candlestick(
+                                x=df_graf.index,
+                                open=df_graf["Open"],
+                                high=df_graf["High"],
+                                low=df_graf["Low"],
+                                close=df_graf["Close"]
+                            )
+                        ]
+                    )
+
+                    fig.update_layout(
+                        template="plotly_dark",
+                        height=250,
+                        margin=dict(
+                            l=0,
+                            r=0,
+                            t=10,
+                            b=0
+                        )
+                    )
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True
+                    )
 
         st.write("")
-        if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
+
+        if st.button(
+            "🔄 Verileri Yenile",
+            key="mob_global_yenile"
+        ):
             st.cache_data.clear()
             st.rerun()
             
