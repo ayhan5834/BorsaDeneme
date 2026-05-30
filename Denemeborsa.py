@@ -331,89 +331,12 @@ with sekme1:
                 unsafe_allow_html=True
             )
 
-        # Başlık satırı
-        hdr_kod, hdr_fiyat, hdr_durum = st.columns([2, 2, 2])
+            # Başlık satırı
+            col1, col2, col3 = st.columns(3)
+            col1.write("AAA")
+            col2.write("BBB")
+            col3.write("CCC")
 
-        with hdr_kod:
-            st.markdown(
-                "<b style='color:#AAAAAA;'>Hisse</b>",
-                unsafe_allow_html=True
-            )
-
-        with hdr_fiyat:
-            st.markdown(
-                "<b style='color:#AAAAAA;'>Fiyat</b>",
-                unsafe_allow_html=True
-            )
-
-        with hdr_durum:
-            st.markdown(
-                "<b style='color:#AAAAAA;'>K/Z</b>",
-                unsafe_allow_html=True
-            )
-
-        st.divider()
-
-        for h, fiyat, m, adet, degisim in kartlar_verisi:
-
-            fiyat_gosterim = (
-                f"{fiyat:.2f}"
-                if fiyat > 0
-                else "--"
-            )
-
-            renk_kz = (
-                "#2ECC71"
-                if degisim > 0
-                else "#E74C3C"
-                if degisim < 0
-                else "#FFFFFF"
-            )
-
-            durum_gosterim = f"%{degisim:+.2f}"
-
-            col_kod, col_fiyat, col_durum = st.columns([2,2,2])
-            with col_kod:
-                c1, c2 = st.columns([4,1])
-
-                with c1:
-                    st.markdown(
-                        f"<span style='font-weight:bold;color:#00F0FF'>{h}</span>",
-                        unsafe_allow_html=True
-                    )
-
-                with c2:
-                    with st.popover("⚙️"):
-
-                        if st.button(
-                            "Analiz/Grafik",
-                            key=f"gr_{h}"
-                        ):
-                            st.session_state["grafik_aktif_hisse"] = (
-                                None
-                                if st.session_state.get("grafik_aktif_hisse") == h
-                                else h
-                            )
-                            st.rerun()
-
-                        if st.button(
-                            "Listeden Çıkar",
-                            key=f"del_{h}"
-                        ):
-                            db.hisse_sil(h)
-                            st.rerun()
-
-            with col_fiyat:
-                st.markdown(
-                    f"<span style='font-size:13px'>{fiyat_gosterim}</span>",
-                    unsafe_allow_html=True
-                )
-
-            with col_durum:
-                st.markdown(
-                    f"<span style='color:{renk_kz};font-weight:bold'>{durum_gosterim}</span>",
-                    unsafe_allow_html=True
-                )
 
 
 
@@ -581,5 +504,7 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         
+        if not bulunanlar:
+            st.warning("Seçili kriterlerde hisse bulunamadı.")
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
