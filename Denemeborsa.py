@@ -5,6 +5,7 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
+
 import os
 import logging
 import sqlite3
@@ -73,7 +74,12 @@ class Veritabani:
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def dinamik_bist_listesi_yukle():
-    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO", "EREGL", "TUPRS", "TUREX"]
+    csv_yolu = "bist_hisseler.csv"
+    if os.path.exists(csv_yolu):
+        df = pd.read_csv(csv_yolu)
+        return df["kod"].tolist()
+    
+    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
 
 @st.cache_data(ttl=60)  
 def guvenli_fiyat_yakala(sorgu_kodu):
@@ -340,4 +346,3 @@ with sekme3:
             for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
         else:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
-        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
