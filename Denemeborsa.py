@@ -277,9 +277,11 @@ with sekme1:
         with hdr_fiyat: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>", unsafe_allow_html=True)
         with hdr_durum: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>", unsafe_allow_html=True)
         st.markdown("<hr style='margin: 8px 0; border-color: #2D2D2D;'>", unsafe_allow_html=True)
+
         
+
         
-            with st.container():
+        with st.container():
 
                 col_kod, col_fiyat, col_durum = st.columns([2, 2, 2])
 
