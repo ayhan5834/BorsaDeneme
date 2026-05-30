@@ -257,7 +257,6 @@ with sekme1:
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
                     toplam_maliyet_hacmi += maliyet * adet
-                    topjel_hacim = toplam_guncel_hacim + (bugun_fiyat * adet)
                     toplam_guncel_hacim += bugun_fiyat * adet
                 else:
                     dun_fiyat = (
@@ -294,7 +293,7 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # 3. ADIM: Hisse Listesi (Kutusuz, telefonda yan yana duran esnek yapı)
+        # 3. ADIM: Hisse Listesi (Kutusuz, telefonda yan yana duran esnek yapı ve Grafik Butonlu)
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
 
@@ -306,19 +305,27 @@ with sekme1:
 
             durum_gosterim = f"%{degisim:+.2f}"
 
+            # Satırı telefonda yan yana kitleyen HTML yapısı
             st.markdown(
                 f"""
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
-                    <span style="color:#00F0FF; font-weight:bold; flex: 1;">{h}</span>
-                    <span style="color:white; flex: 1; text-align: center;">{fiyat_gosterim}</span>
-                    <span style="color:{renk_kz}; font-weight:bold; flex: 1; text-align: right;">{durum_gosterim}</span>
+                    <span style="color:#00F0FF; font-weight:bold; flex: 1.5;">{h}</span>
+                    <span style="color:white; flex: 1.5; text-align: center;">{fiyat_gosterim}</span>
+                    <span style="color:{renk_kz}; font-weight:bold; flex: 1.5; text-align: right; padding-right: 10px;">{durum_gosterim}</span>
                 </div>
-                <hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">
                 """,
                 unsafe_allow_html=True
             )
 
-            # Grafik (TEK BLOK)
+            # --- GRAFİK TETİKLEYİCİ BUTON ---
+            if st.button(f"📊 {h} Grafiği", key=f"btn_graf_{h}"):
+                if st.session_state["grafik_aktif_hisse"] == h:
+                    st.session_state["grafik_aktif_hisse"] = None  # Açıksa kapatır
+                else:
+                    st.session_state["grafik_aktif_hisse"] = h     # Kapalıysa bu hisseyi açar
+                st.rerun()
+
+            # Grafik (TEK BLOK) - Butona tıklandığında hemen altında görünür
             if st.session_state.get("grafik_aktif_hisse") == h:
                 df_graf = grafik_verisi_indir(h + ".IS")
 
@@ -340,14 +347,17 @@ with sekme1:
 
                     fig.update_layout(
                         template="plotly_dark",
-                        height=250,
-                        margin=dict(l=0, r=0, t=10, b=0)
+                        height=230,
+                        margin=dict(l=0, r=0, t=10, b=0),
+                        xaxis_rangeslider_visible=False  # Kalabalık yapan alt çubuğu gizler
                     )
 
                     st.plotly_chart(
                         fig,
                         use_container_width=True
                     )
+
+            st.markdown('<hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">', unsafe_allow_html=True)
 
     st.write("")
 
@@ -406,7 +416,7 @@ with sekme2:
                     ax.set_facecolor('#1E1E1E')
 
                     # --- HASSAS EKSEN AYARLARI ---
-                    ax.yaxis.set_major_locator(MultipleLocator(5.0)) # Hassaslık BIST fiyat skalasına göre optimize edildi
+                    ax.yaxis.set_major_locator(MultipleLocator(5.0))
                     ax.yaxis.set_minor_locator(MultipleLocator(1.0))
 
                     # --- ÇİZGİLER ---
@@ -474,7 +484,5 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         
-        if not bulunanlar:
-            st.warning("Seçili kriterlerde hisse bulunamadı.")
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
