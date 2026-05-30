@@ -69,15 +69,38 @@ class Veritabani:
         return self.cursor.fetchall()
     
 # ==============================================================================
-# 2. VERİ MOTORU
+# 2. GÜVENLİ VERİ MOTORU (Borsa Kapalıyken Kapanışı Korur)
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def dinamik_bist_listesi_yukle():
-    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO", "EREGL", "TUPRS"]
+    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO", "EREGL", "TUPRS", "TUREX"]
 
 @st.cache_data(ttl=60)  
-def guncel_fiyat_indir(sorgu_kodu):
-    return yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
+def guvenli_fiyat_yakala(sorgu_kodu):
+    """Borsa açıkken 5dk'lık canlı veri, kapalıyken en son günlük kapanış fiyatını döndürür."""
+    try:
+        # Önce canlı seans verisini dene (5 dakikalık barlar)
+        df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
+        if isinstance(df.columns, pd.MultiIndex): 
+            df.columns = df.columns.droplevel(1)
+            
+        if df is not None and not df.empty:
+            return float(df["Close"].squeeze().iloc[-1])
+    except:
+        pass
+        
+    try:
+        # Canlı veri yoksa (hafta sonu/gece) son 5 günlük kapanış geçmişini iste ve en son günü al
+        df_yedek = yf.download(sorgu_kodu, period="5d", interval="1d", progress=False)
+        if isinstance(df_yedek.columns, pd.MultiIndex): 
+            df_yedek.columns = df_yedek.columns.droplevel(1)
+            
+        if df_yedek is not None and not df_yedek.empty:
+            return float(df_yedek["Close"].squeeze().iloc[-1])
+    except:
+        pass
+        
+    return None
 
 @st.cache_data(ttl=300) 
 def grafik_verisi_indir(sorgu_kodu):
@@ -127,7 +150,7 @@ with sekme1:
 
     with st.expander("➕ Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
-            yeni_hisse = st.text_input("Kod (ASELS)").upper().strip()
+            yeni_hisse = st.text_input("Kod (TUREX)").upper().strip()
             c1, c2 = st.columns(2)
             maliyet = c1.number_input("Maliyet", value=0.0, step=0.01)
             adet = c2.number_input("Adet", value=0, step=1)
@@ -151,12 +174,11 @@ with sekme1:
 
         for h, maliyet, adet in hisseler:
             sorgu = h if h.endswith(".IS") else h + ".IS"
-            try:
-                df = guncel_fiyat_indir(sorgu)
-                if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-                
-                canli_fiyat = float(df["Close"].squeeze().iloc[-1])
-                
+            
+            # Yeni akıllı fiyat motorunu kullanıyoruz
+            canli_fiyat = guvenli_fiyat_yakala(sorgu)
+            
+            if canli_fiyat is not None:
                 # Kar-Zarar ve Yüzde Hesaplama
                 if maliyet > 0:
                     kz_tl = (canli_fiyat - maliyet) * adet
@@ -207,12 +229,14 @@ with sekme1:
                         st.plotly_chart(fig, use_container_width=True)
                 
                 st.markdown('<hr style="margin:5px 0; border:0; border-top:1px solid #1A1A1A;">', unsafe_allow_html=True)
-            except:
-                st.error(f"{h} verisi alınamadı.")
+            else:
+                # İki denemeden de veri gelmezse (internetsizlik veya Yahoo hatası durumu için)
+                st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
 
     if st.button("🔄 Verileri Yenile"):
         st.cache_data.clear()
         st.rerun()
+
             
 # --- 2. SEKME: HİSSE ANALİZ ---
 with sekme2:
