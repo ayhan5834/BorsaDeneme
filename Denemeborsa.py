@@ -343,8 +343,8 @@ with sekme1:
                     <div class="action-container">
                         <button class="dots-btn" onclick="toggleMenu('menu_{h}')">...</button>
                         <div id="menu_{h}" class="action-menu">
-                            <a href="?action=grafik&ticker={h}" target="_self">📊 Grafik Aç</a>
-                            <a href="?action=sil&ticker={h}" class="delete-item" target="_self">🗑️ Hisseyi Sil</a>
+                            <a href="#" onclick="window.parent.location.search = '?action=grafik&ticker={h}'; return false;">📊 Grafik Aç</a>
+                            <a href="#" class="delete-item" onclick="window.parent.location.search = '?action=sil&ticker={h}'; return false;">🗑️ Hisseyi Sil</a>
                         </div>
                     </div>
                 </div>
@@ -486,6 +486,5 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
-        
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
