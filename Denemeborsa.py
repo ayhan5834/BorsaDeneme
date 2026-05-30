@@ -124,7 +124,7 @@ def mobil_tahmin_motoru(df):
 # 4. MOBİL UYGULAMA PANELİ (STREAMLIT YÜZÜ)
 # ==============================================================================
 
-# --- SMART GLOBAL CSS PANEL ---
+# --- SMART CSS & JS PANEL (HTML Aksiyon Menüsü İçin Özel Alan) ---
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
@@ -141,7 +141,7 @@ st.markdown("""
         width: 100% !important;
     }
     
-    /* Standart Yenileme Butonu */
+    /* Standart Streamlit Yenileme Butonu */
     div.stButton > button {
         background-color: #007BFF !important;
         color: white !important;
@@ -152,79 +152,87 @@ st.markdown("""
 
     div[data-testid="stForm"] { background: transparent; border: none; padding: 0; }
     div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p { color: #FFFFFF !important; }
-    div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p { color: #FFFFFF !important; }
     
-    /* --- SAF HTML/CSS QMENU TASARIM KURALLARI --- */
-    .menu-kapsayici {
+    /* --- HTML ACTION MENU CSS --- */
+    .action-container {
         position: relative;
         display: inline-block;
     }
-    /* Sadece düz mavi renkli üç nokta metni */
-    .saf-uc-nokta {
+    .dots-btn {
+        background: none;
+        border: none;
         color: #00F0FF;
+        font-size: 20px;
         font-weight: bold;
-        font-size: 18px;
         cursor: pointer;
-        padding: 0 8px;
-        user-select: none;
+        padding: 0 10px;
+        line-height: 1;
     }
-    /* QMenu gibi aşağı sarkacak düz liste kutusu */
-    .saf-menu-kutusu {
+    .action-menu {
         display: none;
         position: absolute;
         right: 0;
-        top: 20px;
+        top: 25px;
         background-color: #1E1E1E;
         border: 1px solid #333333;
-        box-shadow: 0px 4px 12px rgba(0,0,0,0.6);
-        z-index: 9999;
-        min-width: 140px;
-        border-radius: 4px;
-        padding: 2px 0;
+        border-radius: 8px;
+        z-index: 999;
+        min-width: 110px;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.5);
     }
-    /* Saf metin görünümü */
-    .menu-yazi-satiri {
-        color: white !important;
-        padding: 8px 16px;
+    .action-menu a {
+        color: white;
+        padding: 8px 12px;
+        text-decoration: none;
+        display: block;
         font-size: 13px;
         font-family: sans-serif;
-        text-align: left;
     }
-    /* Odaklanınca veya hover olunca QMenu kutusunu göster */
-    .menu-kapsayici:focus-within .saf-menu-kutusu,
-    .menu-kapsayici:hover .saf-menu-kutusu {
-        display: block !important;
+    .action-menu a:hover {
+        background-color: #007BFF;
+        color: white;
     }
-    
-    /* İnatçı Streamlit Butonlarını Tamamen Görünmez ve Şeffaf Yapma Sihri */
-    .gormez-alan div[data-testid="stButton"] button {
-        background: transparent !important;
-        background-color: transparent !important;
-        color: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 100% !important;
-        height: 32px !important;
-        z-index: 10 !important;
-        margin: 0 !important;
-        padding: 0 !important;
+    .action-menu a.delete-item {
+        color: #E74C3C;
     }
-    /* Hover Efektleri (QMenu gibi satır parlatma) */
-    .gormez-alan:hover .menu-yazi-satiri {
-        background-color: #007BFF !important;
+    .action-menu a.delete-item:hover {
+        background-color: #E74C3C;
+        color: white;
     }
-    .gormez-alan.silme-alani:hover .menu-yazi-satiri {
-        background-color: #E74C3C !important;
-    }
+    .show { display: block !important; }
     </style>
+
+    <script>
+    function toggleMenu(id) {
+        // Diğer tüm açık menüleri kapat
+        var menus = document.getElementsByClassName("action-menu");
+        for (var i = 0; i < menus.length; i++) {
+            if (menus[i].id !== id) {
+                menus[i].classList.remove("show");
+            }
+        }
+        // İlgili menüyü aç/kapat
+        document.getElementById(id).classList.toggle("show");
+    }
+    // Dışarı tıklanınca menüleri kapatma mekanizması
+    window.onclick = function(event) {
+        if (!event.target.matches('.dots-btn')) {
+            var dropdowns = document.getElementsByClassName("action-menu");
+            for (var i = 0; i < dropdowns.length; i++) {
+                var openDropdown = dropdowns[i];
+                if (openDropdown.classList.contains('show')) {
+                    openDropdown.classList.remove('show');
+                }
+            }
+        }
+    }
+    </script>
 """, unsafe_allow_html=True)
 
 st.title("📱 Mobil Borsa")
 db = Veritabani()
 
+# Oturum Durum Yönetimleri
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
 
@@ -233,6 +241,26 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 # --- 1. SEKME: PORTFÖY ---
 with sekme1:
     hisseler = db.listeyi_getir()
+
+    # URL / Sorgu parametrelerinden gelen aksiyon komutlarını dinle
+    sorgu_parametreleri = st.query_params
+    if "action" in sorgu_parametreleri and "ticker" in sorgu_parametreleri:
+        islem = sorgu_parametreleri["action"]
+        hedef_kod = sorgu_parametreleri["ticker"]
+        
+        if islem == "grafik":
+            if st.session_state["grafik_aktif_hisse"] == hedef_kod:
+                st.session_state["grafik_aktif_hisse"] = None
+            else:
+                st.session_state["grafik_aktif_hisse"] = hedef_kod
+        elif islem == "sil":
+            db.hisse_sil(hedef_kod)
+            if st.session_state["grafik_aktif_hisse"] == hedef_kod:
+                st.session_state["grafik_aktif_hisse"] = None
+        
+        # Parametreleri temizle ve ekranı tazele
+        st.query_params.clear()
+        st.rerun()
 
     with st.expander("➕ Yeni Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
@@ -248,11 +276,13 @@ with sekme1:
 
     if not hisseler:
         st.warning("Henüz takip listesinde hisse yok.")
+
     else:
         toplam_maliyet_hacmi = 0.0
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
+        # 1. ADIM: Verileri indir ve hacimleri hesapla
         for h, maliyet, adet in hisseler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
             try:
@@ -278,6 +308,7 @@ with sekme1:
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
+        # 2. ADIM: Toplam Kasa Görünümü
         if toplam_maliyet_hacmi > 0:
             toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
             renk_kasa = '#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'
@@ -293,15 +324,18 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # 3. ADIM: Saf HTML/CSS Modellı ve Görünmez Buton Tetiklemeli QMenu Düzeni
+        # 3. ADIM: HTML Tablo Satırları ve Dahili HTML Action Menu Entegrasyonu
+        # 3. ADIM: Jilet Gibi İnce Üç Nokta ve QMenu Mantığında Saf Liste Menü
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
             renk_kz = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
             durum_gosterim = f"%{degisim:+.2f}"
 
-            col_sol_veri, col_sag_menu = st.columns([11, 1])
+            # 12 parçalık esnek sistem: 11 parça veriler, 1 parça üç nokta menüsü
+            col_veri, col_buton = st.columns([11, 1])
 
-            with col_sol_veri:
+            with col_veri:
+                # Padding değerini 6px yaparak buton yüksekliğiyle tam eşitledik
                 st.markdown(
                     f"""
                     <div style="display:flex; justify-content:space-between; align-items:center; padding-top:6px;">
@@ -313,48 +347,83 @@ with sekme1:
                     unsafe_allow_html=True
                 )
 
-            with col_sag_menu:
-                # 'tabindex' mobilde dokunulduğunda listenin açık kalmasını sağlar
-                st.markdown(
-                    f"""
-                    <div class="menu-kapsayici" tabindex="0" style="float: right; margin-top: 2px;">
-                        <div class="saf-uc-nokta">...</div>
-                        <div class="saf-menu-kutusu">
-                            
-                            <div class="gormez-alan" style="position: relative;">
-                                <div class="menu-yazi-satiri">Grafik Aç / Kapat</div>
-                    """, 
-                    unsafe_allow_html=True
-                )
+            with col_buton:
+                # CSS SİHRİ: Buton yüksekliğini yarıya indirdik ve açılan menüyü QMenu gibi "Kutusuz/Sadece Yazı" yaptık
+                st.markdown("""
+                    <style>
+                    /* 1. Üç Nokta Butonunun Yüksekliğini Yarıya İndirme */
+                    div[data-testid="stPopover"] {
+                        text-align: right !important;
+                        margin-top: 0px !important;
+                    }
+                    div[data-testid="stPopover"] button {
+                        width: 42px !important;
+                        min-width: 42px !important;
+                        max-width: 42px !important;
+                        height: 22px !important; /* Yükseklik tam yarıya indi */
+                        min-height: 22px !important;
+                        padding: 0px !important;
+                        line-height: 1 !important;
+                        background-color: transparent !important; /* Buton arkasını şeffaf yapar */
+                        border: none !important; /* Çerçeveyi kaldırır */
+                        color: #00F0FF !important;
+                    }
+                    
+                    /* 2. Açılan Menüyü QMenu Gibi Saf Listeye Çevirme (Kutuyu ve Ok İşaretini Yok Etme) */
+                    div[data-testid="stPopoverWindow"] {
+                        background-color: #1E1E1E !important; /* Menü arka planı */
+                        border: 1px solid #333333 !important; /* İnce modern çerçeve */
+                        box-shadow: 0px 4px 10px rgba(0,0,0,0.5) !important;
+                        padding: 4px 0px !important; /* İç boşluğu daralttık */
+                    }
+                    /* Streamlit'in popover ok işaretini (triangle) gizler */
+                    div[data-testid="stPopoverArrow"] {
+                        display: none !important;
+                    }
+                    
+                    /* 3. İçerideki Seçenekleri Saf Yazı Linki Yapma */
+                    div[data-testid="stPopoverBody"] button {
+                        background: none !important;
+                        color: #FFFFFF !important;
+                        border: none !important;
+                        text-align: left !important;
+                        padding: 8px 16px !important; /* QMenu item padding mantığı */
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        font-size: 13px !important;
+                        font-weight: normal !important;
+                        border-radius: 0px !important;
+                        margin: 0px !important;
+                    }
+                    /* Üzerine gelince (Hover) QMenu rengi */
+                    div[data-testid="stPopoverBody"] button:hover {
+                        background-color: #007BFF !important;
+                        color: white !important;
+                    }
+                    /* Sil seçeneği hover rengi */
+                    div[data-testid="stPopoverBody"] div:nth-child(2) button:hover {
+                        background-color: #E74C3C !important;
+                        color: white !important;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
                 
-                # HTML metninin tam üzerine hizalanan görünmez tetikleyici buton
-                if st.button("G1", key=f"hid_gr_{h}"):
-                    if st.session_state["grafik_aktif_hisse"] == h:
-                        st.session_state["grafik_aktif_hisse"] = None
-                    else:
-                        st.session_state["grafik_aktif_hisse"] = h
-                    st.rerun()
+                with st.popover("..."):
+                    # Tıpkı QMenu action'ları gibi sadece alt alta yazılar tetiklenecek
+                    if st.button("📊 Grafik Aç / Kapat", key=f"action_graf_{h}", use_container_width=True):
+                        if st.session_state["grafik_aktif_hisse"] == h:
+                            st.session_state["grafik_aktif_hisse"] = None
+                        else:
+                            st.session_state["grafik_aktif_hisse"] = h
+                        st.rerun()
+                        
+                    if st.button("🗑️ Hisseyi Sil", key=f"action_sil_{h}", use_container_width=True):
+                        db.hisse_sil(h)
+                        if st.session_state["grafik_aktif_hisse"] == h:
+                            st.session_state["grafik_aktif_hisse"] = None
+                        st.rerun()
 
-                st.markdown(
-                    f"""
-                            </div>
-                            
-                            <div class="gormez-alan silme-alani" style="position: relative;">
-                                <div class="menu-yazi-satiri">Hisseyi Sil</div>
-                    """, 
-                    unsafe_allow_html=True
-                )
-                
-                # HTML metninin tam üzerine hizalanan görünmez tetikleyici silme butonu
-                if st.button("S1", key=f"hid_sl_{h}"):
-                    db.hisse_sil(h)
-                    if st.session_state["grafik_aktif_hisse"] == h:
-                        st.session_state["grafik_aktif_hisse"] = None
-                    st.rerun()
-
-                st.markdown("</div></div>", unsafe_allow_html=True)
-
-            # Grafik Arama ve Render Alanı
+            # Grafik Bloğu
             if st.session_state.get("grafik_aktif_hisse") == h:
                 df_graf = grafik_verisi_indir(h + ".IS")
 
@@ -384,8 +453,6 @@ with sekme1:
                     st.plotly_chart(fig, use_container_width=True)
 
             st.markdown('<hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">', unsafe_allow_html=True)
-
-    st.write("")
     if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
         st.cache_data.clear()
         st.rerun()
@@ -488,5 +555,4 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
-        if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
