@@ -317,8 +317,8 @@ with sekme1:
                 unsafe_allow_html=True
             )
 
-            # --- GRAFİK TETİKLEYİCİ BUTON ---
-            if st.button(f"📊 {h} Grafiği", key=f"btn_graf_{h}"):
+            # --- SADECE "GRAFİK" YAZAN TETİKLEYİCİ BUTON ---
+            if st.button("Grafik", key=f"btn_graf_{h}"):
                 if st.session_state["grafik_aktif_hisse"] == h:
                     st.session_state["grafik_aktif_hisse"] = None  # Açıksa kapatır
                 else:
@@ -483,6 +483,9 @@ with sekme3:
         
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
+        
+        if not bulunanlar:
+            st.warning("Seçili kriterlerde hisse bulunamadı.")
         
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
