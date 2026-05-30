@@ -214,35 +214,34 @@ if IS_STREAMLIT:
             # --- PORTFÖY LİSTELEME VE CANLI TAKİP DÖNGÜSÜ ---
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
                 
-                # 1. Açılış div'ini koy (CSS için)
                 st.markdown('<div class="portfoy-card">', unsafe_allow_html=True)
                 
                 with st.container(border=True):
-                    # Sütunları oluştur
-                    c1, c2, c3 = st.columns([1.5, 1.5, 1])
+                    c1, c2, c3 = st.columns([1.5, 1.5, 0.6]) # c3'ü biraz daha daralttık
                     
-                    # CANLI FİYAT ALANI
-                    # st.metric yerine markdown ile anlık güncellenebilir alan yapıyoruz
+                    # 1. Kolon: Hisse ve Fiyat
                     fiyat_bilgisi = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
-                    
                     c1.markdown(f"""
                         <div style='font-size: 14px; font-weight: bold;'>{h}</div>
                         <div style='color: #00F0FF; font-size: 16px;'>{fiyat_bilgisi}</div>
                         <div style='color: {renk}; font-size: 12px;'>{degisim:+.2f}%</div>
                     """, unsafe_allow_html=True)
                     
+                    # 2. Kolon: Detaylar ve Toplam Tutar
+                    toplam_deger = fiyat * adet
                     c2.markdown(f"""
                         <div class='hisse-detay'>
                             {m_metni}<br>
-                            <b>Adet:</b> {adet}
+                            <b>Adet:</b> {adet}<br>
+                            <span style='color: #888;'><b>Tutar:</b> {toplam_deger:,.2f} TL</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if c3.button("Sil", key=f"del_{h}"):
+                    # 3. Kolon: İkonik Sil Butonu (Help ile "Takipten Çıkar" uyarısı)
+                    if c3.button("...", key=f"del_{h}", help="Takipten Çıkar"):
                         db.hisse_sil(h)
                         st.rerun()
-                        
-                # 2. Kapanış div'ini koy
+                            
                 st.markdown('</div>', unsafe_allow_html=True)
                         
         if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
