@@ -209,44 +209,41 @@ if IS_STREAMLIT:
                 
             st.write("")
             
-            st.markdown("""
-                        <style>
-                        /* Sadece portföy kartlarının içindeki sütunları hedefle */
-                        .portfoy-card [data-testid="column"] {
-                            flex: 1 1 0% !important;
-                            min-width: 0 !important;
-                        }
-                        .portfoy-card [data-testid="stHorizontalBlock"] {
-                            flex-wrap: nowrap !important;
-                        }
-                        </style>
-                    """, unsafe_allow_html=True)
     
-            # --- PORTFÖY LİSTELEME DÖNGÜSÜ (KESİN ÇÖZÜM) ---
+    
+            # --- PORTFÖY LİSTELEME VE CANLI TAKİP DÖNGÜSÜ ---
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
-               with st.container(border=True):
-                   # Sütunları eşit paylaştır
-                   c1, c2, c3 = st.columns([1.5, 1.5, 1])
-                   
-                   # 1. Kolon: Hisse Kodu ve Fiyat (Metric yerine Markdown ile)
-                   c1.markdown(f"""
-                       <div style='font-size: 14px; font-weight: bold;'>{h}</div>
-                       <div style='color: #00F0FF; font-size: 16px;'>{fiyat:.2f} TL</div>
-                       <div style='color: {renk}; font-size: 12px;'>{degisim:+.2f}%</div>
-                   """, unsafe_allow_html=True)
-                   
-                   # 2. Kolon: Detaylar
-                   c2.markdown(f"""
-                       <div class='hisse-detay'>
-                           {m_metni}<br>
-                           <b>Adet:</b> {adet}
-                       </div>
-                   """, unsafe_allow_html=True)
-                   
-                   # 3. Kolon: Sil
-                   if c3.button("🗑️Sil", key=f"del_{h}"):
-                       db.hisse_sil(h)
-                       st.rerun()
+                
+                # 1. Açılış div'ini koy (CSS için)
+                st.markdown('<div class="portfoy-card">', unsafe_allow_html=True)
+                
+                with st.container(border=True):
+                    # Sütunları oluştur
+                    c1, c2, c3 = st.columns([1.5, 1.5, 1])
+                    
+                    # CANLI FİYAT ALANI
+                    # st.metric yerine markdown ile anlık güncellenebilir alan yapıyoruz
+                    fiyat_bilgisi = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
+                    
+                    c1.markdown(f"""
+                        <div style='font-size: 14px; font-weight: bold;'>{h}</div>
+                        <div style='color: #00F0FF; font-size: 16px;'>{fiyat_bilgisi}</div>
+                        <div style='color: {renk}; font-size: 12px;'>{degisim:+.2f}%</div>
+                    """, unsafe_allow_html=True)
+                    
+                    c2.markdown(f"""
+                        <div class='hisse-detay'>
+                            {m_metni}<br>
+                            <b>Adet:</b> {adet}
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if c3.button("🗑️Sil", key=f"del_{h}"):
+                        db.hisse_sil(h)
+                        st.rerun()
+                        
+                # 2. Kapanış div'ini koy
+                st.markdown('</div>', unsafe_allow_html=True)
                         
         if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
             st.rerun()
@@ -366,3 +363,13 @@ if IS_STREAMLIT:
                 for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             else:
                 st.warning("Seçili kriterlerde hisse bulunamadı.")
+# --- SAYFAYI OTOMATİK YENİLEME (BUNU KODUN EN ALTINA EKLE) ---
+import streamlit.components.v1 as components
+components.html("""
+    <script>
+        // Sayfayı her 30 saniyede bir otomatik yeniler
+        setTimeout(function(){
+            window.location.reload();
+        }, 30000); 
+    </script>
+""", height=0)
