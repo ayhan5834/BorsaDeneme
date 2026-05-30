@@ -221,12 +221,6 @@ if IS_STREAMLIT:
                         }
                         </style>
                     """, unsafe_allow_html=True)
-            for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
-                # Div'e bir class atıyoruz ki CSS'imiz sadece burayı etkilesin
-                st.markdown('<div class="portfoy-card">', unsafe_allow_html=True)
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([1.5, 1.5, 1])
-    
     
             # --- PORTFÖY LİSTELEME DÖNGÜSÜ (KESİN ÇÖZÜM) ---
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
