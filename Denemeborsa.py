@@ -209,38 +209,50 @@ if IS_STREAMLIT:
                 
             st.write("")
             
-            # --- CSS (Döngü Dışı) ---
             st.markdown("""
-                <style>
-                .portfoy-card [data-testid="column"] {
-                    flex: 1 1 0% !important;
-                    min-width: 0 !important;
-                }
-                .portfoy-card [data-testid="stHorizontalBlock"] {
-                    flex-wrap: nowrap !important;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-
-            # --- PORTFÖY DÖNGÜSÜ ---
+                        <style>
+                        /* Sadece portföy kartlarının içindeki sütunları hedefle */
+                        .portfoy-card [data-testid="column"] {
+                            flex: 1 1 0% !important;
+                            min-width: 0 !important;
+                        }
+                        .portfoy-card [data-testid="stHorizontalBlock"] {
+                            flex-wrap: nowrap !important;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
             for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
-                # 1. Açılış div'ini koy
+                # Div'e bir class atıyoruz ki CSS'imiz sadece burayı etkilesin
                 st.markdown('<div class="portfoy-card">', unsafe_allow_html=True)
-                
-                # 2. Container'ı başlat
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([1.5, 1.5, 1])
-                    
-                    # İçeriklerini buraya ekle (c1.markdown..., c2.markdown...)
-                    c1.markdown(f"<b>{h}</b><br>{fiyat:.2f} TL", unsafe_allow_html=True)
-                    c2.markdown(f"{m_metni}<br>Adet: {adet}", unsafe_allow_html=True)
-                    
-                    if c3.button("🗑️", key=f"del_{h}"):
-                        db.hisse_sil(h)
-                        st.rerun()
-                        
-                # 3. Kapanış div'ini container'dan SONRA koy
-                st.markdown('</div>', unsafe_allow_html=True)
+    
+    
+            # --- PORTFÖY LİSTELEME DÖNGÜSÜ (KESİN ÇÖZÜM) ---
+            for h, fiyat, m_metni, adet, degisim, status, renk in kartlar_verisi:
+               with st.container(border=True):
+                   # Sütunları eşit paylaştır
+                   c1, c2, c3 = st.columns([1.5, 1.5, 1])
+                   
+                   # 1. Kolon: Hisse Kodu ve Fiyat (Metric yerine Markdown ile)
+                   c1.markdown(f"""
+                       <div style='font-size: 14px; font-weight: bold;'>{h}</div>
+                       <div style='color: #00F0FF; font-size: 16px;'>{fiyat:.2f} TL</div>
+                       <div style='color: {renk}; font-size: 12px;'>{degisim:+.2f}%</div>
+                   """, unsafe_allow_html=True)
+                   
+                   # 2. Kolon: Detaylar
+                   c2.markdown(f"""
+                       <div class='hisse-detay'>
+                           {m_metni}<br>
+                           <b>Adet:</b> {adet}
+                       </div>
+                   """, unsafe_allow_html=True)
+                   
+                   # 3. Kolon: Sil
+                   if c3.button("🗑️Sil", key=f"del_{h}"):
+                       db.hisse_sil(h)
+                       st.rerun()
                         
         if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
             st.rerun()
