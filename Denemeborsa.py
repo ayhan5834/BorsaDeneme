@@ -9,6 +9,7 @@ import os
 import sys
 import logging
 import plotly.graph_objects as go
+from streamlit_autorefresh import st_autorefresh
 
 # PyInstaller çevre değişkeni ayarı (Qt çakışmalarını önler)
 if getattr(sys, 'frozen', False):
