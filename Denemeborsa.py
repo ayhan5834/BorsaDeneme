@@ -124,7 +124,7 @@ def mobil_tahmin_motoru(df):
 # 4. MOBİL UYGULAMA PANELİ (STREAMLIT YÜZÜ)
 # ==============================================================================
 
-# --- SMART CSS & JS PANEL (HTML Aksiyon Menüsü İçin Özel Alan) ---
+# --- SMART CSS PANEL (Mobil Uyumlu) ---
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
@@ -138,10 +138,11 @@ st.markdown("""
         border: none !important;
         padding: 10px 20px !important;
         font-weight: bold !important;
+        transition: 0.3s !important;
         width: 100% !important;
     }
     
-    /* Standart Streamlit Yenileme Butonu */
+    /* Standart Yenileme Butonu */
     div.stButton > button {
         background-color: #007BFF !important;
         color: white !important;
@@ -151,82 +152,11 @@ st.markdown("""
     }
 
     div[data-testid="stForm"] { background: transparent; border: none; padding: 0; }
-    div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p { color: #FFFFFF !important; }
     
-    /* --- HTML ACTION MENU CSS --- */
-    .action-container {
-        position: relative;
-        display: inline-block;
-    }
-    .dots-btn {
-        background: none;
-        border: none;
-        color: #00F0FF;
-        font-size: 20px;
-        font-weight: bold;
-        cursor: pointer;
-        padding: 0 10px;
-        line-height: 1;
-    }
-    .action-menu {
-        display: none;
-        position: absolute;
-        right: 0;
-        top: 25px;
-        background-color: #1E1E1E;
-        border: 1px solid #333333;
-        border-radius: 8px;
-        z-index: 999;
-        min-width: 110px;
-        box-shadow: 0px 4px 12px rgba(0,0,0,0.5);
-    }
-    .action-menu a {
-        color: white;
-        padding: 8px 12px;
-        text-decoration: none;
-        display: block;
-        font-size: 13px;
-        font-family: sans-serif;
-    }
-    .action-menu a:hover {
-        background-color: #007BFF;
-        color: white;
-    }
-    .action-menu a.delete-item {
-        color: #E74C3C;
-    }
-    .action-menu a.delete-item:hover {
-        background-color: #E74C3C;
-        color: white;
-    }
-    .show { display: block !important; }
+    /* Yazı ve Etiket Renklerini Beyaz Yapma */
+    div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p { color: #FFFFFF !important; }
+    div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p { color: #FFFFFF !important; }
     </style>
-
-    <script>
-    function toggleMenu(id) {
-        // Diğer tüm açık menüleri kapat
-        var menus = document.getElementsByClassName("action-menu");
-        for (var i = 0; i < menus.length; i++) {
-            if (menus[i].id !== id) {
-                menus[i].classList.remove("show");
-            }
-        }
-        // İlgili menüyü aç/kapat
-        document.getElementById(id).classList.toggle("show");
-    }
-    // Dışarı tıklanınca menüleri kapatma mekanizması
-    window.onclick = function(event) {
-        if (!event.target.matches('.dots-btn')) {
-            var dropdowns = document.getElementsByClassName("action-menu");
-            for (var i = 0; i < dropdowns.length; i++) {
-                var openDropdown = dropdowns[i];
-                if (openDropdown.classList.contains('show')) {
-                    openDropdown.classList.remove('show');
-                }
-            }
-        }
-    }
-    </script>
 """, unsafe_allow_html=True)
 
 st.title("📱 Mobil Borsa")
@@ -241,26 +171,6 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 # --- 1. SEKME: PORTFÖY ---
 with sekme1:
     hisseler = db.listeyi_getir()
-
-    # URL / Sorgu parametrelerinden gelen aksiyon komutlarını dinle
-    sorgu_parametreleri = st.query_params
-    if "action" in sorgu_parametreleri and "ticker" in sorgu_parametreleri:
-        islem = sorgu_parametreleri["action"]
-        hedef_kod = sorgu_parametreleri["ticker"]
-        
-        if islem == "grafik":
-            if st.session_state["grafik_aktif_hisse"] == hedef_kod:
-                st.session_state["grafik_aktif_hisse"] = None
-            else:
-                st.session_state["grafik_aktif_hisse"] = hedef_kod
-        elif islem == "sil":
-            db.hisse_sil(hedef_kod)
-            if st.session_state["grafik_aktif_hisse"] == hedef_kod:
-                st.session_state["grafik_aktif_hisse"] = None
-        
-        # Parametreleri temizle ve ekranı tazele
-        st.query_params.clear()
-        st.rerun()
 
     with st.expander("➕ Yeni Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
@@ -308,7 +218,7 @@ with sekme1:
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
-        # 2. ADIM: Toplam Kasa Görünümü
+        # 2. ADIM: Toplam Kasa ve Net Durum
         if toplam_maliyet_hacmi > 0:
             toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
             renk_kasa = '#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'
@@ -324,7 +234,6 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # 3. ADIM: HTML Tablo Satırları ve Dahili HTML Action Menu Entegrasyonu
         # 3. ADIM: Jilet Gibi İnce Üç Nokta ve QMenu Mantığında Saf Liste Menü
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
@@ -453,6 +362,8 @@ with sekme1:
                     st.plotly_chart(fig, use_container_width=True)
 
             st.markdown('<hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">', unsafe_allow_html=True)
+
+    st.write("")
     if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
         st.cache_data.clear()
         st.rerun()
@@ -555,4 +466,3 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
-            st.warning("Seçili kriterlerde hisse bulunamadı.")
