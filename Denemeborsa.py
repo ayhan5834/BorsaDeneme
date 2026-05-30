@@ -272,8 +272,7 @@ with sekme1:
             </div>
             """, unsafe_allow_html=True)
         
-        oranlar = [0.8, 1.8, 1.8, 2.2] # Mobilde dar ekran için oranlar güncellendi
-        hdr_btn, hdr_kod, hdr_fiyat, hdr_durum = st.columns(oranlar)
+        hdr_kod, hdr_fiyat, hdr_durum = st.columns([2, 2, 2])
         with hdr_kod: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Hisse</b>", unsafe_allow_html=True)
         with hdr_fiyat: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>", unsafe_allow_html=True)
         with hdr_durum: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>", unsafe_allow_html=True)
