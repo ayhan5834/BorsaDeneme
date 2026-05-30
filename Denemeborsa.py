@@ -282,7 +282,7 @@ with sekme1:
         for h, fiyat, m, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
             renk_kz = "#2ECC71" if degisim > 0 else ("#E74C3C" if degisim < 0 else "#FFFFFF")
-            durum_gosterim = f"{'📈' if degisim >=0 else '📉'} %{degisim:+.2f}"
+            durum_gosterim = f"%{degisim:+.2f}"
             
             with st.container():
                 col_btn, col_kod, col_fiyat, col_durum = st.columns(oranlar)
