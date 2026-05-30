@@ -24,7 +24,7 @@ matplotlib.use('Agg')
 logging.getLogger('matplotlib').setLevel(logging.ERROR)
 
 # ==============================================================================
-# STREAMLIT SAYFA AYARLARI (Mobilde tam ekran deneyimi için en üste alınmalı)
+# STREAMLIT SAYFA AYARLARI
 # ==============================================================================
 st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
@@ -67,10 +67,6 @@ class Veritabani:
     def listeyi_getir(self):
         self.cursor.execute("SELECT hisse_kodu, maliyet, adet FROM watchlist")
         return self.cursor.fetchall()
-
-    def hisse_detay_getir(self, kod):
-        self.cursor.execute("SELECT maliyet, adet FROM watchlist WHERE hisse_kodu = ?", (kod,))
-        return self.cursor.fetchone()
     
 # ==============================================================================
 # 2. DİNAMİK BIST LİSTESİ MOTORU
@@ -81,7 +77,6 @@ def dinamik_bist_listesi_yukle():
     if os.path.exists(csv_yolu):
         df = pd.read_csv(csv_yolu)
         return df["kod"].tolist()
-    
     return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
 
 # --- HIZLANDIRICI ÖNBELLEK FONKSİYONLARI ---
@@ -93,7 +88,6 @@ def guncel_fiyat_indir(sorgu_kodu):
 def grafik_verisi_indir(sorgu_kodu):
     return yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
 
-# Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
 
 # ==============================================================================
@@ -124,45 +118,68 @@ def mobil_tahmin_motoru(df):
 # 4. MOBİL UYGULAMA PANELİ (STREAMLIT YÜZÜ)
 # ==============================================================================
 
-# --- SMART CSS PANEL (Mobil Uyumlu) ---
+# --- SMART CSS PANEL ---
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
     div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
     
-    /* Büyük Aksiyon Butonları */
+    /* Form Butonları */
     div.stFormSubmitButton > button {
         background-color: #007BFF !important;
         color: white !important;
         border-radius: 8px !important;
         border: none !important;
-        padding: 10px 20px !important;
-        font-weight: bold !important;
-        transition: 0.3s !important;
         width: 100% !important;
+        font-weight: bold !important;
     }
     
-    /* Standart Yenileme Butonu */
+    /* Yenileme Butonu */
     div.stButton > button {
         background-color: #007BFF !important;
         color: white !important;
         border-radius: 6px !important;
         border: none !important;
-        font-weight: bold !important;
     }
 
-    div[data-testid="stForm"] { background: transparent; border: none; padding: 0; }
-    
-    /* Yazı ve Etiket Renklerini Beyaz Yapma */
-    div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p { color: #FFFFFF !important; }
-    div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p { color: #FFFFFF !important; }
+    /* Popover (Üç Nokta Menüsü) CSS Ayarları */
+    div[data-testid="stPopover"] { text-align: center !important; }
+    div[data-testid="stPopover"] button {
+        width: 32px !important;
+        min-width: 32px !important;
+        height: 24px !important;
+        min-height: 24px !important;
+        padding: 0px !important;
+        background-color: #2D2D2D !important;
+        border: 1px solid #444444 !important;
+        color: #00F0FF !important;
+        font-weight: bold !important;
+        border-radius: 4px !important;
+    }
+    div[data-testid="stPopoverWindow"] {
+        background-color: #1E1E1E !important;
+        border: 1px solid #333333 !important;
+        padding: 4px 0px !important;
+    }
+    div[data-testid="stPopoverArrow"] { display: none !important; }
+    div[data-testid="stPopoverBody"] button {
+        background: none !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        text-align: left !important;
+        padding: 8px 16px !important;
+        width: 100% !important;
+        font-size: 13px !important;
+        border-radius: 0px !important;
+    }
+    div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
+    div[data-testid="stPopoverBody"] div:nth-child(2) button:hover { background-color: #E74C3C !important; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("📱 Mobil Borsa")
 db = Veritabani()
 
-# Oturum Durum Yönetimleri
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
 
@@ -186,13 +203,11 @@ with sekme1:
 
     if not hisseler:
         st.warning("Henüz takip listesinde hisse yok.")
-
     else:
         toplam_maliyet_hacmi = 0.0
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
-        # 1. ADIM: Verileri indir ve hacimleri hesapla
         for h, maliyet, adet in hisseler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
             try:
@@ -204,7 +219,7 @@ with sekme1:
                     kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
                     continue
 
-                bugun_fiyat = df["Close"].squeeze().iloc[-1]
+                bugun_fiyat = float(df["Close"].squeeze().iloc[-1])
 
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
@@ -218,150 +233,97 @@ with sekme1:
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
-        # 2. ADIM: Toplam Kasa ve Net Durum
+        # Kasa Durumu Bilgisi
         if toplam_maliyet_hacmi > 0:
             toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
             renk_kasa = '#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'
-            
-            st.markdown(
-                f"""
+            st.markdown(f"""
                 <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:bold; padding: 5px 0;">
                     <span style="color:#00F0FF;">Kasa: {toplam_maliyet_hacmi:,.2f} TL</span>
                     <span>Net: <span style="color:{renk_kasa};">%{toplam_kar_zarar_yuzde:+,.2f}</span></span>
                 </div>
-                <hr style="margin: 8px 0; border: 0; border-top: 1px solid #2D2D2D;">
-                """,
-                unsafe_allow_html=True
-            )
-            
-        # 3. ADIM: Jilet Gibi İnce Üç Nokta ve QMenu Mantığında Saf Liste Menü
-        for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
-            fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
-            renk_kz = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
-            durum_gosterim = f"%{degisim:+.2f}"
+                """, unsafe_allow_html=True)
 
-            # 12 parçalık esnek sistem: 11 parça veriler, 1 parça üç nokta menüsü
-            col_veri, col_buton = st.columns([11, 1])
+        st.markdown('<hr style="margin: 8px 0; border: 0; border-top: 2px solid #2D2D2D;">', unsafe_allow_html=True)
+
+        # ==============================================================================
+        # WIDGETTABLE: SABİT ÜST SÜTUN BAŞLIKLARI (Grid Düzeni)
+        # ==============================================================================
+        st.markdown("""
+            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:13px; color:#888888; padding-bottom:6px; padding-right:45px;">
+                <span style="width:22%; text-align:left;">HİSSE / ADET</span>
+                <span style="width:26%; text-align:center;">FİYAT / MLY</span>
+                <span style="width:26%; text-align:center;">K/Z (TL)</span>
+                <span style="width:26%; text-align:right;">DEĞİŞİM</span>
+            </div>
+            <div style="border-top: 1px solid #333333; margin-bottom: 8px;"></div>
+        """, unsafe_allow_html=True)
+
+        # ==============================================================================
+        # WIDGETTABLE: ALTTAKİ SATIR SATIR VERİLER
+        # ==============================================================================
+        for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
+            fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
+            maliyet_gosterim = f"{maliyet:.2f}" if maliyet > 0 else "--"
+            
+            if maliyet > 0 and adet > 0 and fiyat > 0:
+                net_kar_zarar = (fiyat * adet) - (maliyet * adet)
+                kz_tl_gosterim = f"{net_kar_zarar:+,.2f}"
+                renk_kz = "#2ECC71" if net_kar_zarar >= 0 else "#E74C3C"
+            else:
+                kz_tl_gosterim = "--"
+                renk_kz = "#888888"
+
+            renk_yuzde = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
+            durum_gosterim = f"%{degisim:+.2f}" if fiyat > 0 else "--"
+
+            # Esnek kolon bölmesi: Sol taraf %88 genişlikte veriler, sağ taraf %12 genişlikte işlem butonu
+            col_veri, col_buton = st.columns([88, 12])
 
             with col_veri:
-                # Padding değerini 6px yaparak buton yüksekliğiyle tam eşitledik
-                st.markdown(
-                    f"""
-                    <div style="display:flex; justify-content:space-between; align-items:center; padding-top:6px;">
-                        <span style="color:#00F0FF; font-weight:bold; width:30%; font-size:15px;">{h}</span>
-                        <span style="color:white; width:35%; text-align: center; font-size:15px;">{fiyat_gosterim}</span>
-                        <span style="color:{renk_kz}; font-weight:bold; width:35%; text-align: right; font-size:15px;">{durum_gosterim}</span>
+                st.markdown(f"""
+                    <div style="display:flex; justify-content:space-between; align-items:center; height:32px;">
+                        <div style="display:flex; flex-direction:column; width:22%; text-align:left;">
+                            <span style="color:#00F0FF; font-weight:bold; font-size:14px; line-height:1.1;">{h}</span>
+                            <span style="color:#666666; font-size:11px; line-height:1.1;">{adet if adet > 0 else 0} Ad.</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; width:26%; text-align:center;">
+                            <span style="color:white; font-weight:500; font-size:14px; line-height:1.1;">{fiyat_gosterim}</span>
+                            <span style="color:#666666; font-size:11px; line-height:1.1;">M:{maliyet_gosterim}</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; width:26%; text-align:center; justify-content:center;">
+                            <span style="color:{renk_kz}; font-weight:500; font-size:13px;">{kz_tl_gosterim}</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; width:26%; text-align:right; justify-content:center;">
+                            <span style="color:{renk_yuzde}; font-weight:bold; font-size:13px;">{durum_gosterim}</span>
+                        </div>
                     </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                """, unsafe_allow_html=True)
 
             with col_buton:
-                # CSS SİHRİ: Buton yüksekliğini yarıya indirdik ve açılan menüyü QMenu gibi "Kutusuz/Sadece Yazı" yaptık
-                st.markdown("""
-                    <style>
-                    /* 1. Üç Nokta Butonunun Yüksekliğini Yarıya İndirme */
-                    div[data-testid="stPopover"] {
-                        text-align: right !important;
-                        margin-top: 0px !important;
-                    }
-                    div[data-testid="stPopover"] button {
-                        width: 42px !important;
-                        min-width: 42px !important;
-                        max-width: 42px !important;
-                        height: 22px !important; /* Yükseklik tam yarıya indi */
-                        min-height: 22px !important;
-                        padding: 0px !important;
-                        line-height: 1 !important;
-                        background-color: transparent !important; /* Buton arkasını şeffaf yapar */
-                        border: none !important; /* Çerçeveyi kaldırır */
-                        color: #00F0FF !important;
-                    }
-                    
-                    /* 2. Açılan Menüyü QMenu Gibi Saf Listeye Çevirme (Kutuyu ve Ok İşaretini Yok Etme) */
-                    div[data-testid="stPopoverWindow"] {
-                        background-color: #1E1E1E !important; /* Menü arka planı */
-                        border: 1px solid #333333 !important; /* İnce modern çerçeve */
-                        box-shadow: 0px 4px 10px rgba(0,0,0,0.5) !important;
-                        padding: 4px 0px !important; /* İç boşluğu daralttık */
-                    }
-                    /* Streamlit'in popover ok işaretini (triangle) gizler */
-                    div[data-testid="stPopoverArrow"] {
-                        display: none !important;
-                    }
-                    
-                    /* 3. İçerideki Seçenekleri Saf Yazı Linki Yapma */
-                    div[data-testid="stPopoverBody"] button {
-                        background: none !important;
-                        color: #FFFFFF !important;
-                        border: none !important;
-                        text-align: left !important;
-                        padding: 8px 16px !important; /* QMenu item padding mantığı */
-                        width: 100% !important;
-                        max-width: 100% !important;
-                        font-size: 13px !important;
-                        font-weight: normal !important;
-                        border-radius: 0px !important;
-                        margin: 0px !important;
-                    }
-                    /* Üzerine gelince (Hover) QMenu rengi */
-                    div[data-testid="stPopoverBody"] button:hover {
-                        background-color: #007BFF !important;
-                        color: white !important;
-                    }
-                    /* Sil seçeneği hover rengi */
-                    div[data-testid="stPopoverBody"] div:nth-child(2) button:hover {
-                        background-color: #E74C3C !important;
-                        color: white !important;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-                
+                # Tablo satırıyla tam hizada açılan mini işlem butonu
                 with st.popover("..."):
-                    # Tıpkı QMenu action'ları gibi sadece alt alta yazılar tetiklenecek
-                    if st.button("📊 Grafik Aç / Kapat", key=f"action_graf_{h}", use_container_width=True):
-                        if st.session_state["grafik_aktif_hisse"] == h:
-                            st.session_state["grafik_aktif_hisse"] = None
-                        else:
-                            st.session_state["grafik_aktif_hisse"] = h
+                    if st.button("📊 Grafik Aç/Kapat", key=f"action_graf_{h}", use_container_width=True):
+                        st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
                         st.rerun()
                         
                     if st.button("🗑️ Hisseyi Sil", key=f"action_sil_{h}", use_container_width=True):
                         db.hisse_sil(h)
-                        if st.session_state["grafik_aktif_hisse"] == h:
-                            st.session_state["grafik_aktif_hisse"] = None
+                        if st.session_state["grafik_aktif_hisse"] == h: st.session_state["grafik_aktif_hisse"] = None
                         st.rerun()
 
-            # Grafik Bloğu
+            # Grafik Açıksa Tablo Altına Ekle
             if st.session_state.get("grafik_aktif_hisse") == h:
                 df_graf = grafik_verisi_indir(h + ".IS")
-
                 if not df_graf.empty:
-                    if isinstance(df_graf.columns, pd.MultiIndex):
-                        df_graf.columns = df_graf.columns.droplevel(1)
-
-                    fig = go.Figure(
-                        data=[
-                            go.Candlestick(
-                                x=df_graf.index,
-                                open=df_graf["Open"],
-                                high=df_graf["High"],
-                                low=df_graf["Low"],
-                                close=df_graf["Close"]
-                            )
-                        ]
-                    )
-
-                    fig.update_layout(
-                        template="plotly_dark",
-                        height=230,
-                        margin=dict(l=0, r=0, t=10, b=0),
-                        xaxis_rangeslider_visible=False
-                    )
-
+                    if isinstance(df_graf.columns, pd.MultiIndex): df_graf.columns = df_graf.columns.droplevel(1)
+                    fig = go.Figure(data=[go.Candlestick(
+                        x=df_graf.index, open=df_graf["Open"], high=df_graf["High"], low=df_graf["Low"], close=df_graf["Close"]
+                    )])
+                    fig.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=5, b=0), xaxis_rangeslider_visible=False)
                     st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown('<hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">', unsafe_allow_html=True)
+            st.markdown('<div style="border-top: 1px solid #1A1A1A; margin: 4px 0;"></div>', unsafe_allow_html=True)
 
     st.write("")
     if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
@@ -464,7 +426,5 @@ with sekme3:
                             for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             except: continue
         durum_alani.text("Tarama tamamlandı!")
-        ilerleme_bari.empty()
-        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
