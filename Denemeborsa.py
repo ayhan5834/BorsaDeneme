@@ -314,10 +314,6 @@ with sekme1:
                         unsafe_allow_html=True
                     )
 
-                with col_kod: st.markdown(f"<div style='padding-top:2px;'><span style='font-weight: bold; color: #00F0FF; font-size:14px;'>{h}</span></div>", unsafe_allow_html=True)
-                with col_fiyat: st.markdown(f"<div style='padding-top:2px;'><span style='font-size:14px;'>{fiyat_gosterim}</span></div>", unsafe_allow_html=True)
-                with col_durum: st.markdown(f"<div style='padding-top:2px;'><span style='color: {renk_kz}; font-weight: bold; font-size:14px;'>{durum_gosterim}</span></div>", unsafe_allow_html=True)
-
             # Grafik mobilde daha küçük marginlerle gösterilir
             if st.session_state.get("grafik_aktif_hisse") == h:
                 df_graf = grafik_verisi_indir(h + ".IS")
