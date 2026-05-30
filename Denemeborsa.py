@@ -220,7 +220,7 @@ if IS_STREAMLIT:
                 st.markdown('<div class="portfoy-card">', unsafe_allow_html=True)
                 
                 with st.container(border=True):
-                    c1, c2, c3 = st.columns([1.5, 1.5, 0.6]) # c3'ü biraz daha daralttık
+                    c1, c2, c3 = st.columns([1.5, 1.5, 1])
                     
                     # 1. Kolon: Hisse ve Fiyat
                     fiyat_bilgisi = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
@@ -240,11 +240,34 @@ if IS_STREAMLIT:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    # 3. Kolon: İkonik Sil Butonu (Help ile "Takipten Çıkar" uyarısı)
-                    if c3.button("...", key=f"del_{h}", help="Takipten Çıkar"):
-                        db.hisse_sil(h)
-                        st.rerun()
-                            
+                    # 3. Kolon: Butonlar (Grafik ve Sil)
+                    with c3:
+                        # Grafik Butonu
+                        if st.button("📊", key=f"graf_{h}", help="Mumlu Grafiği Gör"):
+                            st.session_state[f"show_graf_{h}"] = True
+                        # Sil Butonu
+                        if st.button("🗑️", key=f"del_{h}", help="Takipten Çıkar"):
+                            db.hisse_sil(h)
+                            st.rerun()
+
+                # --- GRAFİK KONTROLÜ (Döngü içinde ama container dışı) ---
+                if st.session_state.get(f"show_graf_{h}", False):
+                    with st.expander(f"{h} Mumlu Grafik", expanded=True):
+                        # Veri çekme
+                        df_graf = yf.download(h + ".IS", period="1mo", interval="1d", progress=False)
+                        
+                        # Plotly ile grafik
+                        fig = go.Figure(data=[go.Candlestick(x=df_graf.index,
+                                        open=df_graf['Open'], high=df_graf['High'],
+                                        low=df_graf['Low'], close=df_graf['Close'])])
+                        
+                        fig.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=0, t=30, b=0))
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        if st.button("Grafiği Kapat", key=f"close_{h}"):
+                            st.session_state[f"show_graf_{h}"] = False
+                            st.rerun()
+
                 st.markdown('</div>', unsafe_allow_html=True)
                         
         if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
