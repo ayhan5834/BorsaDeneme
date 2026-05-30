@@ -8,6 +8,7 @@ Created on Fri May 29 15:42:45 2026
 import os
 import sys
 import logging
+import plotly.graph_objects as go
 
 # PyInstaller çevre değişkeni ayarı (Qt çakışmalarını önler)
 if getattr(sys, 'frozen', False):
