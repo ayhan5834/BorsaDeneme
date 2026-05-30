@@ -390,13 +390,5 @@ if IS_STREAMLIT:
                 for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             else:
                 st.warning("Seçili kriterlerde hisse bulunamadı.")
-# --- SAYFAYI OTOMATİK YENİLEME (BUNU KODUN EN ALTINA EKLE) ---
-import streamlit.components.v1 as components
-components.html("""
-    <script>
-        // Sayfayı her 30 saniyede bir otomatik yeniler
-        setTimeout(function(){
-            window.location.reload();
-        }, 30000); 
-    </script>
-""", height=0)
+# Bu satır, sayfayı dondurmadan 30 saniyede bir otomatik olarak arka planda yeniler
+st_autorefresh(interval=30000, key="datarefresh")
