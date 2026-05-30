@@ -238,7 +238,7 @@ if IS_STREAMLIT:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if c3.button("🗑️Sil", key=f"del_{h}"):
+                    if c3.button("Sil", key=f"del_{h}"):
                         db.hisse_sil(h)
                         st.rerun()
                         
