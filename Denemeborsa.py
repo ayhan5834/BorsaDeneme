@@ -262,60 +262,136 @@ with sekme1:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
         
         if toplam_maliyet_hacmi > 0:
-            toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
-            st.markdown(f"""
-            <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 10px;'>
-                <span style='color: #00F0FF; font-weight: bold; font-size: 16px;'>Kasa: {toplam_maliyet_hacmi:,.2f} TL</span><br>
-                <span style='color: {'#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'}; font-weight: bold; font-size: 14px;'>
-                    Net Durum: %{toplam_kar_zarar_yuzde:+,.2f}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        oranlar = [0.1, 0.8, 0.8, 1] # Mobilde dar ekran için oranlar güncellendi
-        hdr_btn, hdr_kod, hdr_fiyat, hdr_durum = st.columns(oranlar)
-        with hdr_kod: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Hisse</b>", unsafe_allow_html=True)
-        with hdr_fiyat: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>", unsafe_allow_html=True)
-        with hdr_durum: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>", unsafe_allow_html=True)
-        st.markdown("<hr style='margin: 8px 0; border-color: #2D2D2D;'>", unsafe_allow_html=True)
-        
-        for h, fiyat, m, adet, degisim in kartlar_verisi:
-            fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
-            renk_kz = "#2ECC71" if degisim > 0 else ("#E74C3C" if degisim < 0 else "#FFFFFF")
-            durum_gosterim = f"{'📈' if degisim >=0 else '📉'} %{degisim:+.2f}"
-            
-            with st.container():
-                col_btn, col_kod, col_fiyat, col_durum = st.columns(oranlar)
-                
-                with col_btn:
-                    with st.popover("⚙️"):
-                        btn_text = "Grafiği Kapat" if st.session_state.get("grafik_aktif_hisse") == h else "Analiz/Grafik"
-                        
-                        if st.button(btn_text, key=f"gr_{h}"):
-                            st.session_state["grafik_aktif_hisse"] = None if st.session_state.get("grafik_aktif_hisse") == h else h
-                            st.rerun()
-                        
-                        if st.button("Listeden Çıkar", key=f"del_{h}"):
-                            db.hisse_sil(h)
-                            st.rerun()
+    toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
 
-                with col_kod: st.markdown(f"<div style='padding-top:2px;'><span style='font-weight: bold; color: #00F0FF; font-size:14px;'>{h}</span></div>", unsafe_allow_html=True)
-                with col_fiyat: st.markdown(f"<div style='padding-top:2px;'><span style='font-size:14px;'>{fiyat_gosterim}</span></div>", unsafe_allow_html=True)
-                with col_durum: st.markdown(f"<div style='padding-top:2px;'><span style='color: {renk_kz}; font-weight: bold; font-size:14px;'>{durum_gosterim}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 10px;'>
+        <span style='color: #00F0FF; font-weight: bold; font-size: 16px;'>
+            Kasa: {toplam_maliyet_hacmi:,.2f} TL
+        </span><br>
+        <span style='color: {'#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'}; font-weight: bold; font-size: 14px;'>
+            Net Durum: %{toplam_kar_zarar_yuzde:+,.2f}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
 
-            # Grafik mobilde daha küçük marginlerle gösterilir
-            if st.session_state.get("grafik_aktif_hisse") == h:
-                df_graf = grafik_verisi_indir(h + ".IS")
-                if not df_graf.empty:
-                    if isinstance(df_graf.columns, pd.MultiIndex): df_graf.columns = df_graf.columns.droplevel(1)
-                    fig = go.Figure(data=[go.Candlestick(x=df_graf.index, open=df_graf['Open'], high=df_graf['High'], low=df_graf['Low'], close=df_graf['Close'])])
-                    fig.update_layout(template="plotly_dark", height=250, margin=dict(l=0, r=0, t=10, b=0))
-                    st.plotly_chart(fig, use_container_width=True)
+oranlar = [0.8, 1.8, 1.8, 2.2]
 
-        st.write("")
-        if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
-            st.cache_data.clear()
-            st.rerun()
+hdr_btn, hdr_kod, hdr_fiyat, hdr_durum = st.columns(oranlar)
+
+with hdr_kod:
+    st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Hisse</b>", unsafe_allow_html=True)
+
+with hdr_fiyat:
+    st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>",unsafe_allow_html=True)
+
+with hdr_durum:
+    st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>",unsafe_allow_html=True)
+st.markdown("<hr style='margin: 8px 0; border-color: #2D2D2D;'>",unsafe_allow_html=True)
+
+for h, fiyat, m, adet, degisim in kartlar_verisi:
+
+    fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
+    renk_kz = "#2ECC71" if degisim > 0 else ("#E74C3C" if degisim < 0 else "#FFFFFF")
+    durum_gosterim = f"{degisim:+.2f}%"
+
+    with st.container():
+        col_btn, col_kod, col_fiyat, col_durum = st.columns(oranlar)
+        with col_btn:
+            with st.expander("⚙️"):
+
+                btn_text = ("Grafiği Kapat"
+                    if st.session_state.get("grafik_aktif_hisse") == h
+                    else "Analiz/Grafik" )
+
+                if st.button(btn_text, key=f"gr_{h}"):
+
+                    st.session_state["grafik_aktif_hisse"] = (
+                        None
+                        if st.session_state.get("grafik_aktif_hisse") == h
+                        else h
+                    )
+
+                    st.rerun()
+
+                if st.button("Listeden Çıkar", key=f"del_{h}"):
+
+                    db.hisse_sil(h)
+                    st.rerun()
+
+        with col_kod:
+
+            st.markdown(
+                f"""
+                <div style='padding-top:2px;'>
+                    <span style='font-weight:bold; color:#00F0FF; font-size:14px;'>
+                        {h}
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with col_fiyat:
+
+            st.markdown(
+                f"""
+                <div style='padding-top:2px;'>
+                    <span style='font-size:14px;'>
+                        {fiyat_gosterim}
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with col_durum:
+
+            st.markdown(
+                f"""
+                <div style='padding-top:2px;'>
+                    <span style='color:{renk_kz}; font-weight:bold; font-size:14px;'>
+                        {durum_gosterim}
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    if st.session_state.get("grafik_aktif_hisse") == h:
+
+        df_graf = grafik_verisi_indir(h + ".IS")
+
+        if not df_graf.empty:
+
+            if isinstance(df_graf.columns, pd.MultiIndex):
+                df_graf.columns = df_graf.columns.droplevel(1)
+
+            fig = go.Figure(
+                data=[
+                    go.Candlestick(
+                        x=df_graf.index,
+                        open=df_graf["Open"],
+                        high=df_graf["High"],
+                        low=df_graf["Low"],
+                        close=df_graf["Close"]
+                    )
+                ]
+            )
+
+            fig.update_layout(
+                template="plotly_dark",
+                height=250,
+                margin=dict(l=0, r=0, t=10, b=0)
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+st.write("")
+
+if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
+    st.cache_data.clear()
+    st.rerun()
             
 # --- 2. SEKME: HİSSE ANALİZ ---
 with sekme2:
