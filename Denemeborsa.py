@@ -272,32 +272,37 @@ with sekme1:
             </div>
             """, unsafe_allow_html=True)
         
-        oranlar = [0.1, 1, 1, 1] # Mobilde dar ekran için oranlar güncellendi
-        hdr_btn, hdr_kod, hdr_fiyat, hdr_durum = st.columns(oranlar)
+        col_kod, col_fiyat, col_durum = st.columns([2, 2, 2])
         with hdr_kod: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Hisse</b>", unsafe_allow_html=True)
         with hdr_fiyat: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>", unsafe_allow_html=True)
         with hdr_durum: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>", unsafe_allow_html=True)
         st.markdown("<hr style='margin: 8px 0; border-color: #2D2D2D;'>", unsafe_allow_html=True)
+
+        
         
         for h, fiyat, m, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
             renk_kz = "#2ECC71" if degisim > 0 else ("#E74C3C" if degisim < 0 else "#FFFFFF")
             durum_gosterim = f"%{degisim:+.2f}"
             
-            with st.container():
-                col_btn, col_kod, col_fiyat, col_durum = st.columns(oranlar)
-                
-                with col_btn:
-                    with st.popover("⚙️"):
-                        btn_text = "Grafiği Kapat" if st.session_state.get("grafik_aktif_hisse") == h else "Analiz/Grafik"
-                        
-                        if st.button(btn_text, key=f"gr_{h}"):
-                            st.session_state["grafik_aktif_hisse"] = None if st.session_state.get("grafik_aktif_hisse") == h else h
-                            st.rerun()
-                        
-                        if st.button("Listeden Çıkar", key=f"del_{h}"):
-                            db.hisse_sil(h)
-                            st.rerun()
+           with col_kod:
+               with st.popover(f"⚙️ {h}"):
+                   if st.button("Analiz/Grafik", key=f"gr_{h}"):
+                       st.session_state["grafik_aktif_hisse"] = (
+                       None if st.session_state.get("grafik_aktif_hisse") == h else h
+                       )
+                       st.rerun()
+
+                   if st.button("Listeden Çıkar", key=f"del_{h}"):
+                       db.hisse_sil(h)
+                       st.rerun()
+                   
+            
+            
+        
+    
+    
+    
 
                 with col_kod: st.markdown(f"<div style='padding-top:2px;'><span style='font-weight: bold; color: #00F0FF; font-size:14px;'>{h}</span></div>", unsafe_allow_html=True)
                 with col_fiyat: st.markdown(f"<div style='padding-top:2px;'><span style='font-size:14px;'>{fiyat_gosterim}</span></div>", unsafe_allow_html=True)
