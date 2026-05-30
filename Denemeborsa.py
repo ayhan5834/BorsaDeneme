@@ -24,7 +24,7 @@ matplotlib.use('Agg')
 logging.getLogger('matplotlib').setLevel(logging.ERROR)
 
 # ==============================================================================
-# STREAMLIT SAYFA AYARLARI (Mobilde tam ekran deneyimi için en üste alınmalı)
+# STREAMLIT SAYFA AYARLARI
 # ==============================================================================
 st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
@@ -81,7 +81,6 @@ def dinamik_bist_listesi_yukle():
     if os.path.exists(csv_yolu):
         df = pd.read_csv(csv_yolu)
         return df["kod"].tolist()
-    
     return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
 
 # --- HIZLANDIRICI ÖNBELLEK FONKSİYONLARI ---
@@ -93,7 +92,6 @@ def guncel_fiyat_indir(sorgu_kodu):
 def grafik_verisi_indir(sorgu_kodu):
     return yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
 
-# Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
 
 # ==============================================================================
@@ -162,7 +160,6 @@ st.markdown("""
 st.title("📱 Mobil Borsa")
 db = Veritabani()
 
-# Oturum Durum Yönetimleri
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
 
@@ -170,7 +167,7 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 
 # --- 1. SEKME: PORTFÖY ---
 with sekme1:
-    hisseler = db.listeyi_getir()
+    hisserler = db.listeyi_getir()
 
     with st.expander("➕ Yeni Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
@@ -184,16 +181,15 @@ with sekme1:
                 db.hisse_ekle(yeni_hisse, maliyet, adet)
                 st.rerun()
 
-    if not hisseler:
+    if not hisserler:
         st.warning("Henüz takip listesinde hisse yok.")
-
     else:
         toplam_maliyet_hacmi = 0.0
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
         # 1. ADIM: Verileri indir ve hacimleri hesapla
-        for h, maliyet, adet in hisseler:
+        for h, maliyet, adet in hisserler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
             try:
                 df = guncel_fiyat_indir(sorgu_kodu)
@@ -204,7 +200,7 @@ with sekme1:
                     kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
                     continue
 
-                bugun_fiyat = df["Close"].squeeze().iloc[-1]
+                bugun_fiyat = float(df["Close"].squeeze().iloc[-1])
 
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
@@ -234,15 +230,13 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # ==============================================================================
-        # 3. ADIM: Jilet Gibi İnce Üç Nokta ve Yeni Kompakt Satır Düzeni
-        # ==============================================================================
+        # 3. ADIM: İstediğin Yeni Kompakt Çift Satırlı Mobil Düzen
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
             maliyet_gosterim = f"Mly: {maliyet:.2f}" if maliyet > 0 else "Mly: --"
             
-            # Kar / Zarar hesaplamaları (TL ve Yüzde bazlı)
-            if maliyet > 0 and adet > 0:
+            # Kar / Zarar durumuna göre metin ve renkleri belirle
+            if maliyet > 0 and adet > 0 and fiyat > 0:
                 toplam_maliyet = maliyet * adet
                 guncel_deger = fiyat * adet
                 net_kar_zarar = guncel_deger - toplam_maliyet
@@ -250,16 +244,13 @@ with sekme1:
                 kz_yuzde_gosterim = f"%{degisim:+.2f}"
                 renk_kz = "#2ECC71" if net_kar_zarar >= 0 else "#E74C3C"
             else:
-                # Maliyet girilmediyse sadece dünkü fiyata göre değişim yüzdesi gösterilir
                 kz_tl_gosterim = "--"
                 kz_yuzde_gosterim = f"%{degisim:+.2f}" if fiyat > 0 else "--"
                 renk_kz = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
 
-            # 12 parçalık esnek sistem: 11 parça veriler, 1 parça üç nokta popover menüsü
             col_veri, col_buton = st.columns([11, 1])
 
             with col_veri:
-                # Flexbox kullanarak alt alta verileri mükemmel hizalıyoruz
                 st.markdown(
                     f"""
                     <div style="display:flex; justify-content:space-between; align-items:center; padding-top:2px; padding-bottom:2px;">
@@ -283,7 +274,6 @@ with sekme1:
                 )
 
             with col_buton:
-                # Popover CSS ayarlarını koruyoruz (Kutusuz/Sadece Yazı Menü)
                 st.markdown("""
                     <style>
                     div[data-testid="stPopover"] {
@@ -366,7 +356,6 @@ with sekme1:
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
-            # Satırlar arasına çok ince, gözü yormayan ayırıcı çizgi
             st.markdown('<hr style="margin: 6px 0; border: 0; border-top: 1px solid #1A1A1A;">', unsafe_allow_html=True)
 
     st.write("")
