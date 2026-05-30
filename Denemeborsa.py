@@ -472,5 +472,3 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
-        ilerleme_bari.empty()
-        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
