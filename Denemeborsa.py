@@ -252,23 +252,41 @@ if IS_STREAMLIT:
                             db.hisse_sil(h)
                             st.rerun()
 
-                # --- GRAFİK KONTROLÜ (Döngü içinde ama container dışı) ---
-                if st.session_state.get(f"show_graf_{h}", False):
-                    with st.expander(f"{h} Mumlu Grafik", expanded=True):
-                        # Veri çekme
-                        df_graf = yf.download(h + ".IS", period="1mo", interval="1d", progress=False)
-                        
-                        # Plotly ile grafik
-                        fig = go.Figure(data=[go.Candlestick(x=df_graf.index,
-                                        open=df_graf['Open'], high=df_graf['High'],
-                                        low=df_graf['Low'], close=df_graf['Close'])])
-                        
-                        fig.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=0, t=30, b=0))
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        if st.button("Grafiği Kapat", key=f"close_{h}"):
-                            st.session_state[f"show_graf_{h}"] = False
-                            st.rerun()
+                # GRAFİK KONTROLÜ
+    if st.session_state.get(f"show_graf_{h}", False):
+        with st.expander(f"{h} Mumlu Grafik", expanded=True):
+            # 1. HATA AYIKLAMA İÇİN: Yahoo'dan veriyi çek
+            # period="1mo" yerine "3mo" yaparak daha fazla veri gelmesini sağlayalım
+            df_graf = yf.download(h + ".IS", period="3mo", interval="1d", progress=False)
+            
+            # 2. Veri boş mu kontrolü
+            if df_graf.empty:
+                st.warning(f"{h} için veri bulunamadı. Lütfen daha sonra tekrar deneyin.")
+            else:
+                # Sütunları düzelt (MultiIndex sorunu varsa)
+                if isinstance(df_graf.columns, pd.MultiIndex):
+                    df_graf.columns = df_graf.columns.droplevel(1)
+                
+                # 3. Mumlu grafik çizimi
+                fig = go.Figure(data=[go.Candlestick(
+                    x=df_graf.index,
+                    open=df_graf['Open'],
+                    high=df_graf['High'],
+                    low=df_graf['Low'],
+                    close=df_graf['Close']
+                )])
+                
+                fig.update_layout(
+                    template="plotly_dark", 
+                    height=300, 
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    xaxis_rangeslider_visible=False # Kaydırıcıyı kapatarak daha net görüntü al
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            if st.button("Grafiği Kapat", key=f"close_{h}"):
+                st.session_state[f"show_graf_{h}"] = False
+                st.rerun()
 
                 st.markdown('</div>', unsafe_allow_html=True)
                         
