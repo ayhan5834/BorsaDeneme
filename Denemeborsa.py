@@ -272,17 +272,13 @@ with sekme1:
             </div>
             """, unsafe_allow_html=True)
         
-        hdr_kod, hdr_fiyat, hdr_durum = st.columns([2, 2, 2])
+        st.write("Hisse | Fiyat | K/Z")
         with hdr_kod: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Hisse</b>", unsafe_allow_html=True)
         with hdr_fiyat: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>Fiyat</b>", unsafe_allow_html=True)
         with hdr_durum: st.markdown("<b style='color:#aaaaaa; font-size:12px;'>K/Z</b>", unsafe_allow_html=True)
         st.markdown("<hr style='margin: 8px 0; border-color: #2D2D2D;'>", unsafe_allow_html=True)
         
-        for h, fiyat, m, adet, degisim in kartlar_verisi:
-            fiyat_gosterim = f"{fiyat:.2f}" if fiyat > 0 else "--"
-            renk_kz = "#2ECC71" if degisim > 0 else ("#E74C3C" if degisim < 0 else "#FFFFFF")
-            durum_gosterim = f"%{degisim:+.2f}"
-
+        
             with st.container():
 
                 col_kod, col_fiyat, col_durum = st.columns([2, 2, 2])
