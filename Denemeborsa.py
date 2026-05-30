@@ -234,17 +234,16 @@ with sekme1:
         st.cache_data.clear()
         st.rerun()
 
-# --- 2. SEKME: HİSSE ANALİZ (Güvenli Kontrol Eklendi) ---
+# --- 2. SEKME: HİSSE ANALİZ ---
 with sekme2:
+    st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
-        analiz_girdisi = st.text_input("Hisse Kodu Giriniz (örn: THYAO)").upper().strip()
-        if st.form_submit_button("🚀 Analiz Et") and analiz_girdisi:
+        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın (Örn: THYAO)").upper().strip()
+        analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
+        if analiz_tetiklendi and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
-            st.rerun()
     
     hisse_kodu = st.session_state["analiz_edilen_hisse"]
-    
-    # Boş aramaları engelleyen kritik güvenli check
     if hisse_kodu:
         sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
         try:
@@ -258,6 +257,7 @@ with sekme2:
                 potansiyel = ((hedef_fiyat - son_fiyat) / son_fiyat) * 100
                 hacim_onay = df['Volume'].squeeze().iloc[-1] > (df['Volume'].squeeze().rolling(10).mean().iloc[-1] * 0.8)
                 
+                # Sinyal Hesaplama
                 df['RSI'] = ta.momentum.rsi(kapanis, window=14)
                 macd = ta.trend.MACD(kapanis)
                 son_rsi, son_m, son_ms = df['RSI'].iloc[-1], macd.macd().iloc[-1], macd.macd_signal().iloc[-1]
@@ -280,60 +280,64 @@ with sekme2:
                 with anlz_col2:
                     fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='#121212')
                     ax.set_facecolor('#1E1E1E')
-                    ax.yaxis.set_major_locator(MultipleLocator(5.0))
-                    ax.yaxis.set_minor_locator(MultipleLocator(1.0))
                     ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
-                    ax.plot(range(29, 35), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), 
-                            color='#FF00FF', linestyle='--', linewidth=2, label="YZ Tahmin")
-                    ax.tick_params(colors='white', labelsize=9)
-                    ax.grid(True, color='#2D2D2D', linestyle='--')
-                    ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='white')
-                    for spine in ax.spines.values(): spine.set_visible(False)
-                    fig.tight_layout()
+                    ax.plot(range(29, 35), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), color='#FF00FF', linestyle='--', label="Tahmin")
+                    ax.tick_params(colors='white'); ax.grid(True, color='#2D2D2D'); ax.legend()
                     st.pyplot(fig)
-        except: 
-            st.error("Veri çekilemedi. Lütfen geçerli bir kod girin.")
-    else:
-        st.info("💡 Lütfen analiz etmek istediğiniz hissenin kodunu yukarıya yazıp 'Analiz Et' butonuna basın.")
+        except: st.error("Veri çekilemedi.")
      
 # --- 3. SEKME: MEGA RADAR ---
 with sekme3:
+    st.subheader("🔍 Radar Taraması")
+    
     col1, col2 = st.columns(2)
-    sadece_guclu = col1.checkbox("GÜÇLÜ AL Sinyali", value=True)
-    hacim_filtresi = col2.checkbox("Hacim Onayı İstiyorum", value=False)
+    hacim_filtresi = col1.checkbox("Hacim Onayı İstiyorum", value=True)
+    sadece_guclu = col2.checkbox("Sadece GÜÇLÜ AL Sinyalleri", value=False)
     
     if st.button("🚀 TARAMAYI BAŞLAT", key="mob_radar_start"):
         guncel_hisse_listesi = dinamik_bist_listesi_yukle()
         bulunanlar = []
         toplam = len(guncel_hisse_listesi)
+        
+        # İlerleme elemanlarını hazırla
         ilerleme_bari = st.progress(0)
         durum_alani = st.empty()
-        sonuc_alani = st.empty()  
         
         for idx, h in enumerate(guncel_hisse_listesi):
-            durum_alani.write(f"<span style='color:white; font-size:14px;'>Taranıyor: {h} ({idx+1}/{toplam})</span>", unsafe_allow_html=True)
+            # Anlık sayaç ve bilgi güncelleme
+            durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
             ilerleme_bari.progress((idx + 1) / toplam)
+            
             try:
                 df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
                 if df is None or len(df) < 20: continue
                 if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
+                
                 kapanis, hacim = df['Close'].squeeze(), df['Volume'].squeeze()
                 son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
                 macd_c = ta.trend.MACD(kapanis).macd().iloc[-1]
                 macd_s = ta.trend.MACD(kapanis).macd_signal().iloc[-1]
                 
+                # Sinyal Kontrolleri
                 sinyal_var = (son_rsi < 42 and macd_c > macd_s) or (sadece_guclu == False and son_rsi < 30)
+                
+                # Hacim Kontrolü
                 hacim_ort = hacim.rolling(10).mean().iloc[-1]
                 hacim_onayli = hacim.iloc[-1] > (hacim_ort * 0.8)
                 
                 if sinyal_var:
                     if not hacim_filtresi or hacim_onayli:
                         bulunanlar.append(h)
-                        with sonuc_alani.container():
-                            st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
-                            for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
-            except: continue
+            except: 
+                continue
+        
+        # İşlem bittiğinde temizle
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
-        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
+        
+        if bulunanlar:
+            st.success(f"✅ {len(bulunanlar)} adet hisse kriterlerine uygun:")
+            for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
+        else:
+            st.warning("Seçili kriterlerde hisse bulunamadı.")
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
