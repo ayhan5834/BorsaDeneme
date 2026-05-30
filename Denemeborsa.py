@@ -79,7 +79,6 @@ def dinamik_bist_listesi_yukle():
 def guvenli_fiyat_yakala(sorgu_kodu):
     """Borsa açıkken 5dk'lık canlı veri, kapalıyken en son günlük kapanış fiyatını döndürür."""
     try:
-        # Önce canlı seans verisini dene (5 dakikalık barlar)
         df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
         if isinstance(df.columns, pd.MultiIndex): 
             df.columns = df.columns.droplevel(1)
@@ -90,7 +89,6 @@ def guvenli_fiyat_yakala(sorgu_kodu):
         pass
         
     try:
-        # Canlı veri yoksa (hafta sonu/gece) son 5 günlük kapanış geçmişini iste ve en son günü al
         df_yedek = yf.download(sorgu_kodu, period="5d", interval="1d", progress=False)
         if isinstance(df_yedek.columns, pd.MultiIndex): 
             df_yedek.columns = df_yedek.columns.droplevel(1)
@@ -142,6 +140,9 @@ st.markdown("""
 st.title("📱 Mobil Borsa")
 db = Veritabani()
 
+if "analiz_edilen_hisse" not in st.session_state:
+    st.session_state["analiz_edilen_hisse"] = ""
+
 sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "ANALİZ", "RADAR"])
 
 # --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
@@ -175,11 +176,9 @@ with sekme1:
         for h, maliyet, adet in hisseler:
             sorgu = h if h.endswith(".IS") else h + ".IS"
             
-            # Yeni akıllı fiyat motorunu kullanıyoruz
             canli_fiyat = guvenli_fiyat_yakala(sorgu)
             
             if canli_fiyat is not None:
-                # Kar-Zarar ve Yüzde Hesaplama
                 if maliyet > 0:
                     kz_tl = (canli_fiyat - maliyet) * adet
                     degisim_yuzde = ((canli_fiyat - maliyet) / maliyet) * 100
@@ -188,7 +187,6 @@ with sekme1:
                     degisim_yuzde = 0.0
 
                 renk = "#2ECC71" if kz_tl >= 0 else "#E74C3C"
-                
                 col_veri, col_btn = st.columns([88, 12])
                 
                 with col_veri:
@@ -212,7 +210,7 @@ with sekme1:
                     """, unsafe_allow_html=True)
 
                 with col_btn:
-                    with st.popover(" "):
+                    with st.popover("..."):
                         if st.button("📊 Grafik", key=f"gr_{h}"):
                             st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
                             st.rerun()
@@ -230,24 +228,23 @@ with sekme1:
                 
                 st.markdown('<hr style="margin:5px 0; border:0; border-top:1px solid #1A1A1A;">', unsafe_allow_html=True)
             else:
-                # İki denemeden de veri gelmezse (internetsizlik veya Yahoo hatası durumu için)
                 st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
 
-    if st.button("🔄 Verileri Yenile"):
+    if st.button("🔄 Verileri Yenile", key="global_refresh_btn"):
         st.cache_data.clear()
         st.rerun()
 
-            
-# --- 2. SEKME: HİSSE ANALİZ ---
+# --- 2. SEKME: HİSSE ANALİZ (Güvenli Kontrol Eklendi) ---
 with sekme2:
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
-        analiz_girdisi = st.text_input("Hisse Kodu Giriniz").upper().strip()
-        analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
-        if analiz_tetiklendi and analiz_girdisi:
+        analiz_girdisi = st.text_input("Hisse Kodu Giriniz (örn: THYAO)").upper().strip()
+        if st.form_submit_button("🚀 Analiz Et") and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
+            st.rerun()
     
     hisse_kodu = st.session_state["analiz_edilen_hisse"]
     
+    # Boş aramaları engelleyen kritik güvenli check
     if hisse_kodu:
         sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
         try:
@@ -294,7 +291,10 @@ with sekme2:
                     for spine in ax.spines.values(): spine.set_visible(False)
                     fig.tight_layout()
                     st.pyplot(fig)
-        except: st.error("Veri çekilemedi.")
+        except: 
+            st.error("Veri çekilemedi. Lütfen geçerli bir kod girin.")
+    else:
+        st.info("💡 Lütfen analiz etmek istediğiniz hissenin kodunu yukarıya yazıp 'Analiz Et' butonuna basın.")
      
 # --- 3. SEKME: MEGA RADAR ---
 with sekme3:
@@ -336,5 +336,4 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
-        ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
