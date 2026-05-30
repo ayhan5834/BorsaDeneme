@@ -9,7 +9,6 @@ import os
 import sys
 import logging
 import plotly.graph_objects as go
-from streamlit_autorefresh import st_autorefresh
 
 # PyInstaller çevre değişkeni ayarı (Qt çakışmalarını önler)
 if getattr(sys, 'frozen', False):
@@ -171,8 +170,8 @@ if IS_STREAMLIT:
                 try:
                     # Mevcut: period="2d", interval="1d"
                     # Önerilen: period="1d", interval="5m" (Son 1 günün, 5 dakikalık verileri)
-                    df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False) 
-    
+                    df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
+
                     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                     
                     if df is None or df.empty or len(df) == 0:
@@ -244,39 +243,39 @@ if IS_STREAMLIT:
                     
                     # 3. Kolon: Butonlar (Grafik ve Sil)
                     with c3:
-            # Grafik Butonu: Artık 'graf_aktif_hisse' değişkenini güncelliyor
-            if st.button("📊", key=f"graf_{h}", help="Mumlu Grafiği Gör"):
-                st.session_state["graf_aktif_hisse"] = h
-            
-            # Sil Butonu
-            if st.button("🗑️", key=f"del_{h}", help="Takipten Çıkar"):
-                db.hisse_sil(h)
-                st.rerun()
+                        # Grafik Butonu: Artık 'graf_aktif_hisse' değişkenini güncelliyor
+                        if st.button("📊", key=f"graf_{h}", help="Mumlu Grafiği Gör"):
+                            st.session_state["graf_aktif_hisse"] = h
+                        
+                        # Sil Butonu
+                        if st.button("🗑️", key=f"del_{h}", help="Takipten Çıkar"):
+                            db.hisse_sil(h)
+                            st.rerun()
 
-    # --- GRAFİK KONTROLÜ (Sadece o an seçili olan hisseyi gösterir) ---
-    if st.session_state.get("graf_aktif_hisse") == h:
-        with st.expander(f"{h} Mumlu Grafik", expanded=True):
-            # Veri çekme
-            df_graf = yf.download(h + ".IS", period="3mo", interval="1d", progress=False)
-            
-            if df_graf.empty:
-                st.warning("Veri alınamadı.")
-            else:
-                if isinstance(df_graf.columns, pd.MultiIndex):
-                    df_graf.columns = df_graf.columns.droplevel(1)
-                
-                # Plotly ile grafik
-                fig = go.Figure(data=[go.Candlestick(x=df_graf.index,
-                                open=df_graf['Open'], high=df_graf['High'],
-                                low=df_graf['Low'], close=df_graf['Close'])])
-                
-                fig.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=0, t=30, b=0), xaxis_rangeslider_visible=False)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Kapatma butonu
-                if st.button("Grafiği Kapat", key=f"close_{h}"):
-                    st.session_state["graf_aktif_hisse"] = None
-                    st.rerun()
+                # --- GRAFİK KONTROLÜ (Sadece o an seçili olan hisseyi gösterir) ---
+                if st.session_state.get("graf_aktif_hisse") == h:
+                    with st.expander(f"{h} Mumlu Grafik", expanded=True):
+                        # Veri çekme
+                        df_graf = yf.download(h + ".IS", period="3mo", interval="1d", progress=False)
+                        
+                        if df_graf.empty:
+                            st.warning("Veri alınamadı.")
+                        else:
+                            if isinstance(df_graf.columns, pd.MultiIndex):
+                                df_graf.columns = df_graf.columns.droplevel(1)
+                            
+                            # Plotly ile grafik
+                            fig = go.Figure(data=[go.Candlestick(x=df_graf.index,
+                                            open=df_graf['Open'], high=df_graf['High'],
+                                            low=df_graf['Low'], close=df_graf['Close'])])
+                            
+                            fig.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=0, t=30, b=0), xaxis_rangeslider_visible=False)
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Kapatma butonu
+                            if st.button("Grafiği Kapat", key=f"close_{h}"):
+                                st.session_state["graf_aktif_hisse"] = None
+                                st.rerun()
 
                 st.markdown('</div>', unsafe_allow_html=True)
                         
@@ -398,5 +397,9 @@ if IS_STREAMLIT:
                 for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             else:
                 st.warning("Seçili kriterlerde hisse bulunamadı.")
-# Bu satır, sayfayı dondurmadan 30 saniyede bir otomatik olarak arka planda yeniler
-st_autorefresh(interval=30000, key="datarefresh")
+import time
+
+# Eğer otomatik yenileme istiyorsan, kodun en altına şu şekilde koy:
+# Bu işlem sayfayı 30 saniyede bir, sistemin kendi içinde yeniler.
+time.sleep(10)
+st.rerun()
