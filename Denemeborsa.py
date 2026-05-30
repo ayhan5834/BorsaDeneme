@@ -168,8 +168,20 @@ if IS_STREAMLIT:
                 sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
                 try:
                     
-                    # Önerilen: period="1d", interval="5m" (Son 1 günün, 5 dakikalık verileri)
-                    df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
+                    try:
+                        df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
+                        if df.empty:
+                             st.write(f"DEBUG: {sorgu_kodu} için veri gelmedi.")
+                             kartlar_verisi.append((h, 0.0, "Veri Yok", adet, 0.0, "HATA", "#FF9800"))
+                        else:
+                            bugun_fiyat = df['Close'].squeeze().iloc[-1]
+        # ... geri kalanı
+                  except Exception as e:
+                  st.write(f"DEBUG HATA: {e}")
+    
+       
+   
+    
                     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                     
                     if df is None or df.empty or len(df) == 0:
