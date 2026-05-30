@@ -6,4 +6,5 @@ matplotlib
 ta
 scikit-learn
 plotly
+streamlit-autorefresh
 
