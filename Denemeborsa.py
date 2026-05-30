@@ -197,20 +197,8 @@ st.title("📱 Mobil Borsa")
 db = Veritabani()
 
 # Oturum Durum Yönetimleri
-if "menü_aktif_hisse" not in st.session_state:
-    st.session_state["menü_aktif_hisse"] = None
-if "grafik_goster" not in st.session_state:
-    st.session_state["grafik_goster"] = False
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
-    
-def menü_tetikleyici(hisse_adi):
-    if st.session_state["menü_aktif_hisse"] == hisse_adi:
-        st.session_state["menü_aktif_hisse"] = None  
-        st.session_state["grafik_goster"] = False
-    else:
-        st.session_state["menü_aktif_hisse"] = hisse_adi 
-        st.session_state["grafik_goster"] = False
 
 sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 
@@ -250,7 +238,7 @@ with sekme1:
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
-        # 1. ADIM: Verileri indir ve hacimleri hesapla
+        # 1. ADIM: Verileri indir ve hacimleri hesapla (Döngü)
         for h, maliyet, adet in hisseler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
 
@@ -269,6 +257,7 @@ with sekme1:
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
                     toplam_maliyet_hacmi += maliyet * adet
+                    topjel_hacim = toplam_guncel_hacim + (bugun_fiyat * adet)
                     toplam_guncel_hacim += bugun_fiyat * adet
                 else:
                     dun_fiyat = (
@@ -285,7 +274,7 @@ with sekme1:
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
-        # 2. ADIM: Üst Özet Bilgi (Kutular kaldırıldı, sade metin yapıldı)
+        # 2. ADIM: Toplam Kasa ve Net Durum (Kutusuz Mobil Düzen)
         if toplam_maliyet_hacmi > 0:
             toplam_kar_zarar_yuzde = (
                 (toplam_guncel_hacim - toplam_maliyet_hacmi)
@@ -294,13 +283,18 @@ with sekme1:
 
             renk_kasa = '#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'
             
-            # Üst tarafa sade bir başlık ve durum yazısı
-            st.subheader("📊 Portföy Özet Durumu")
-            st.markdown(f"**Kasa:** {toplam_maliyet_hacmi:,.2f} TL")
-            st.markdown(f"**Net Durum:** <span style='color:{renk_kasa}; font-weight:bold;'>%{toplam_kar_zarar_yuzde:+,.2f}</span>", unsafe_allow_html=True)
-            st.write("---") # Araya ince bir çizgi
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:bold; padding: 5px 0;">
+                    <span style="color:#00F0FF;">Kasa: {toplam_maliyet_hacmi:,.2f} TL</span>
+                    <span>Net: <span style="color:{renk_kasa};">%{toplam_kar_zarar_yuzde:+,.2f}</span></span>
+                </div>
+                <hr style="margin: 8px 0; border: 0; border-top: 1px solid #2D2D2D;">
+                """,
+                unsafe_allow_html=True
+            )
             
-        # 3. ADIM: Hisse Listesi (Kutular kaldırıldı, yan yana sade yazılar yapıldı)
+        # 3. ADIM: Hisse Listesi (Kutusuz, telefonda yan yana duran esnek yapı)
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
 
@@ -312,14 +306,17 @@ with sekme1:
 
             durum_gosterim = f"%{degisim:+.2f}"
 
-            # Streamlit columns kullanarak verileri kutusuz, tertemiz yan yana diziyoruz
-            c1, c2, c3 = st.columns([2, 2, 2])
-            with c1:
-                st.markdown(f"**{h}**")
-            with c2:
-                st.write(fiyat_gosterim)
-            with c3:
-                st.markdown(f"<span style='color:{renk_kz}; font-weight:bold;'>{durum_gosterim}</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+                    <span style="color:#00F0FF; font-weight:bold; flex: 1;">{h}</span>
+                    <span style="color:white; flex: 1; text-align: center;">{fiyat_gosterim}</span>
+                    <span style="color:{renk_kz}; font-weight:bold; flex: 1; text-align: right;">{durum_gosterim}</span>
+                </div>
+                <hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">
+                """,
+                unsafe_allow_html=True
+            )
 
             # Grafik (TEK BLOK)
             if st.session_state.get("grafik_aktif_hisse") == h:
@@ -351,8 +348,6 @@ with sekme1:
                         fig,
                         use_container_width=True
                     )
-            
-            st.write("---") # Her hisse senedinin altına ince bir ayıraç çizgi atar
 
     st.write("")
 
@@ -411,8 +406,8 @@ with sekme2:
                     ax.set_facecolor('#1E1E1E')
 
                     # --- HASSAS EKSEN AYARLARI ---
-                    ax.yaxis.set_major_locator(MultipleLocator(0.1)) 
-                    ax.yaxis.set_minor_locator(MultipleLocator(0.05))
+                    ax.yaxis.set_major_locator(MultipleLocator(5.0)) # Hassaslık BIST fiyat skalasına göre optimize edildi
+                    ax.yaxis.set_minor_locator(MultipleLocator(1.0))
 
                     # --- ÇİZGİLER ---
                     ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
@@ -424,7 +419,6 @@ with sekme2:
                     ax.grid(True, color='#2D2D2D', linestyle='--')
                     ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='white')
                     
-                    # Eksen kenarlarını (spine) yok ederek daha modern bir görünüm verelim
                     for spine in ax.spines.values():
                         spine.set_visible(False)
                     
@@ -480,5 +474,7 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         
+        if not bulunanlar:
+            st.warning("Seçili kriterlerde hisse bulunamadı.")
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
