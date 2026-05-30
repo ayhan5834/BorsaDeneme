@@ -24,7 +24,7 @@ matplotlib.use('Agg')
 logging.getLogger('matplotlib').setLevel(logging.ERROR)
 
 # ==============================================================================
-# STREAMLIT SAYFA AYARLARI (Mobilde tam ekran deneyimi için en üste alınmalı)
+# STREAMLIT SAYFA AYARLARI
 # ==============================================================================
 st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
@@ -81,7 +81,6 @@ def dinamik_bist_listesi_yukle():
     if os.path.exists(csv_yolu):
         df = pd.read_csv(csv_yolu)
         return df["kod"].tolist()
-    
     return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
 
 # --- HIZLANDIRICI ÖNBELLEK FONKSİYONLARI ---
@@ -93,7 +92,6 @@ def guncel_fiyat_indir(sorgu_kodu):
 def grafik_verisi_indir(sorgu_kodu):
     return yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
 
-# Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
 
 # ==============================================================================
@@ -124,7 +122,7 @@ def mobil_tahmin_motoru(df):
 # 4. MOBİL UYGULAMA PANELİ (STREAMLIT YÜZÜ)
 # ==============================================================================
 
-# --- SMART CSS PANEL (Mobil Uyumlu) ---
+# --- SMART CSS PANEL (Tüm Tasarım Kodları Buraya Toplandı) ---
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
@@ -156,13 +154,60 @@ st.markdown("""
     /* Yazı ve Etiket Renklerini Beyaz Yapma */
     div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p { color: #FFFFFF !important; }
     div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p { color: #FFFFFF !important; }
+
+    /* ÜÇ NOKTA POPOVER MOBIL TASARIM CSS AYARLARI */
+    div[data-testid="stPopover"] {
+        text-align: right !important;
+        margin-top: 2px !important;
+    }
+    div[data-testid="stPopover"] button {
+        width: 42px !important;
+        min-width: 42px !important;
+        max-width: 42px !important;
+        height: 26px !important;
+        min-height: 26px !important;
+        padding: 0px !important;
+        line-height: 1 !important;
+        background-color: transparent !important;
+        border: none !important;
+        color: #00F0FF !important;
+    }
+    div[data-testid="stPopoverWindow"] {
+        background-color: #1E1E1E !important;
+        border: 1px solid #333333 !important;
+        box-shadow: 0px 4px 10px rgba(0,0,0,0.5) !important;
+        padding: 4px 0px !important;
+    }
+    div[data-testid="stPopoverArrow"] {
+        display: none !important;
+    }
+    div[data-testid="stPopoverBody"] button {
+        background: none !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        text-align: left !important;
+        padding: 8px 16px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        font-size: 13px !important;
+        font-weight: normal !important;
+        border-radius: 0px !important;
+        margin: 0px !important;
+    }
+    div[data-testid="stPopoverBody"] button:hover {
+        background-color: #007BFF !important;
+        color: white !important;
+    }
+    div[data-testid="stPopoverBody"] div:nth-child(2) button:hover {
+        background-color: #E74C3C !important;
+        color: white !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("📱 Mobil Borsa")
 db = Veritabani()
 
-# Oturum Durum Yönetimleri
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
 
@@ -186,7 +231,6 @@ with sekme1:
 
     if not hisseler:
         st.warning("Henüz takip listesinde hisse yok.")
-
     else:
         toplam_maliyet_hacmi = 0.0
         toplam_guncel_hacim = 0.0
@@ -204,7 +248,7 @@ with sekme1:
                     kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
                     continue
 
-                bugun_fiyat = df["Close"].squeeze().iloc[-1]
+                bugun_fiyat = float(df["Close"].squeeze().iloc[-1])
 
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
@@ -234,12 +278,8 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-      
-        # ==============================================================================
-        # 3. ADIM: Jilet Gibi İnce Üç Nokta ve Yeni Kompakt Çift Satırlı Mobil Düzen
-        # ==============================================================================
+        # 3. ADIM: Temiz, Saf Veri Satırları (Sızıntı Yapacak Kod Kalmadı)
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
-            # Fiyat ve Maliyet metinlerini güvenli şekilde hazırla
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
             maliyet_gosterim = f"Mly: {maliyet:.2f}" if maliyet > 0 else "Mly: --"
             
@@ -254,11 +294,10 @@ with sekme1:
             else:
                 kz_tl_gosterim = "--"
                 kz_yuzde_gosterim = f"%{degisim:+.2f}" if fiyat > 0 else "--"
-                renk_kz = "#888888" # Veri yoksa nötr gri yapalım, sırıtmasın
+                renk_kz = "#888888"
 
             col_veri, col_buton = st.columns([11, 1])
 
-            # HTML kodunun ekrana sızmasını engellemek için TEK BİR st.markdown içinde birleştirdik
             with col_veri:
                 st.markdown(
                     f"""
@@ -283,57 +322,6 @@ with sekme1:
                 )
 
             with col_buton:
-                st.markdown("""
-                    <style>
-                    div[data-testid="stPopover"] {
-                        text-align: right !important;
-                        margin-top: 2px !important;
-                    }
-                    div[data-testid="stPopover"] button {
-                        width: 42px !important;
-                        min-width: 42px !important;
-                        max-width: 42px !important;
-                        height: 26px !important;
-                        min-height: 26px !important;
-                        padding: 0px !important;
-                        line-height: 1 !important;
-                        background-color: transparent !important;
-                        border: none !important;
-                        color: #00F0FF !important;
-                    }
-                    div[data-testid="stPopoverWindow"] {
-                        background-color: #1E1E1E !important;
-                        border: 1px solid #333333 !important;
-                        box-shadow: 0px 4px 10px rgba(0,0,0,0.5) !important;
-                        padding: 4px 0px !important;
-                    }
-                    div[data-testid="stPopoverArrow"] {
-                        display: none !important;
-                    }
-                    div[data-testid="stPopoverBody"] button {
-                        background: none !important;
-                        color: #FFFFFF !important;
-                        border: none !important;
-                        text-align: left !important;
-                        padding: 8px 16px !important;
-                        width: 100% !important;
-                        max-width: 100% !important;
-                        font-size: 13px !important;
-                        font-weight: normal !important;
-                        border-radius: 0px !important;
-                        margin: 0px !important;
-                    }
-                    div[data-testid="stPopoverBody"] button:hover {
-                        background-color: #007BFF !important;
-                        color: white !important;
-                    }
-                    div[data-testid="stPopoverBody"] div:nth-child(2) button:hover {
-                        background-color: #E74C3C !important;
-                        color: white !important;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-                
                 with st.popover("..."):
                     if st.button("📊 Grafik Aç / Kapat", key=f"action_graf_{h}", use_container_width=True):
                         if st.session_state["grafik_aktif_hisse"] == h:
@@ -468,7 +456,5 @@ with sekme3:
                             for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             except: continue
         durum_alani.text("Tarama tamamlandı!")
-        ilerleme_bari.empty()
-        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
