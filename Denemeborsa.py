@@ -331,61 +331,61 @@ with sekme1:
                 unsafe_allow_html=True
             )
 
-            # Başlık satırı
-            col1, col2, col3 = st.columns(3)
-            col1.write("AAA")
-            col2.write("BBB")
-            col3.write("CCC")
+        # Başlık satırı
+        col1, col2, col3 = st.columns(3)
+        col1.write("AAA")
+        col2.write("BBB")
+        col3.write("CCC")
 
 
 
 
-            # Grafik (TEK BLOK)
-            if st.session_state.get("grafik_aktif_hisse") == h:
+        # Grafik (TEK BLOK)
+        if st.session_state.get("grafik_aktif_hisse") == h:
 
-                df_graf = grafik_verisi_indir(h + ".IS")
+            df_graf = grafik_verisi_indir(h + ".IS")
 
-                if not df_graf.empty:
+            if not df_graf.empty:
 
-                    if isinstance(df_graf.columns, pd.MultiIndex):
-                        df_graf.columns = df_graf.columns.droplevel(1)
+                if isinstance(df_graf.columns, pd.MultiIndex):
+                    df_graf.columns = df_graf.columns.droplevel(1)
 
-                    fig = go.Figure(
-                        data=[
-                            go.Candlestick(
-                                x=df_graf.index,
-                                open=df_graf["Open"],
-                                high=df_graf["High"],
-                                low=df_graf["Low"],
-                                close=df_graf["Close"]
-                            )
-                        ]
-                    )
-
-                    fig.update_layout(
-                        template="plotly_dark",
-                        height=250,
-                        margin=dict(
-                            l=0,
-                            r=0,
-                            t=10,
-                            b=0
+                fig = go.Figure(
+                    data=[
+                        go.Candlestick(
+                            x=df_graf.index,
+                            open=df_graf["Open"],
+                            high=df_graf["High"],
+                            low=df_graf["Low"],
+                            close=df_graf["Close"]
                         )
+                    ]
+                )
+
+                fig.update_layout(
+                    template="plotly_dark",
+                    height=250,
+                    margin=dict(
+                        l=0,
+                        r=0,
+                        t=10,
+                        b=0
                     )
+                )
 
-                    st.plotly_chart(
-                        fig,
-                        use_container_width=True
-                    )
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True
+                )
 
-        st.write("")
+    st.write("")
 
-        if st.button(
-            "🔄 Verileri Yenile",
-            key="mob_global_yenile"
-        ):
-            st.cache_data.clear()
-            st.rerun()
+    if st.button(
+        "🔄 Verileri Yenile",
+        key="mob_global_yenile"
+    ):
+        st.cache_data.clear()
+        st.rerun()
             
 # --- 2. SEKME: HİSSE ANALİZ ---
 with sekme2:
@@ -504,7 +504,5 @@ with sekme3:
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         
-        if not bulunanlar:
-            st.warning("Seçili kriterlerde hisse bulunamadı.")
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
