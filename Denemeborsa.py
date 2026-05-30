@@ -262,7 +262,7 @@ with sekme1:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
         
         if toplam_maliyet_hacmi > 0:
-    toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
+             toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
 
     st.markdown(f"""
     <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #2D2D2D; text-align: center; margin-bottom: 10px;'>
