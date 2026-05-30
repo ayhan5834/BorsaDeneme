@@ -175,7 +175,7 @@ if IS_STREAMLIT:
                     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                     
                     if df is None or df.empty or len(df) == 0:
-                        kartlar_verisi.append((h, 0.0, "Veri Bulunamadı", adet, 0.0, "KOD HATALI / DELISTED", "#FF9800"))
+                        kartlar_verisi.append((h, 0.0, "Veri Yok", adet, 0.0, "KOD HATALI / DELISTED", "#FF9800"))
                         continue
                         
                     bugun_fiyat = df['Close'].squeeze().iloc[-1]
