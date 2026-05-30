@@ -332,9 +332,7 @@ with sekme1:
             )
 
         # Başlık satırı
-        hdr_btn, hdr_kod, hdr_fiyat, hdr_durum = st.columns(
-            [0.6, 1.6, 1.4, 1.4]
-        )
+        hdr_kod, hdr_fiyat, hdr_durum = st.columns([2, 2, 2])
 
         with hdr_kod:
             st.markdown(
@@ -374,68 +372,50 @@ with sekme1:
 
             durum_gosterim = f"%{degisim:+.2f}"
 
-            col_btn, col_kod, col_fiyat, col_durum = st.columns(
-                [0.6, 1.6, 1.4, 1.4]
-            )
-
-            with col_btn:
-                with st.popover("⚙️"):
-
-                    if st.button(
-                        "Analiz/Grafik",
-                        key=f"gr_{h}"
-                    ):
-                        st.session_state["grafik_aktif_hisse"] = (
-                            None
-                            if st.session_state.get(
-                                "grafik_aktif_hisse"
-                            ) == h
-                            else h
-                        )
-                        st.rerun()
-
-                    if st.button(
-                        "Listeden Çıkar",
-                        key=f"del_{h}"
-                    ):
-                        db.hisse_sil(h)
-                        st.rerun()
-
+            col_kod, col_fiyat, col_durum = st.columns([2,2,2])
             with col_kod:
-                st.markdown(
-                    f"""
-                    <span style="
-                        color:#00F0FF;
-                        font-weight:bold;
-                    ">
-                        {h}
-                    </span>
-                    """,
-                    unsafe_allow_html=True
-                )
+                c1, c2 = st.columns([4,1])
+
+                with c1:
+                    st.markdown(
+                        f"<span style='font-weight:bold;color:#00F0FF'>{h}</span>",
+                        unsafe_allow_html=True
+                    )
+
+                with c2:
+                    with st.popover("⚙️"):
+
+                        if st.button(
+                            "Analiz/Grafik",
+                            key=f"gr_{h}"
+                        ):
+                            st.session_state["grafik_aktif_hisse"] = (
+                                None
+                                if st.session_state.get("grafik_aktif_hisse") == h
+                                else h
+                            )
+                            st.rerun()
+
+                        if st.button(
+                            "Listeden Çıkar",
+                            key=f"del_{h}"
+                        ):
+                            db.hisse_sil(h)
+                            st.rerun()
 
             with col_fiyat:
                 st.markdown(
-                    f"""
-                    <span style="font-size:13px;">
-                        {fiyat_gosterim}
-                    </span>
-                    """,
+                    f"<span style='font-size:13px'>{fiyat_gosterim}</span>",
                     unsafe_allow_html=True
                 )
 
             with col_durum:
                 st.markdown(
-                    f"""
-                    <span style="
-                        color:{renk_kz};
-                        font-weight:bold;
-                    ">
-                        {durum_gosterim}
-                    </span>
-                    """,
+                    f"<span style='color:{renk_kz};font-weight:bold'>{durum_gosterim}</span>",
                     unsafe_allow_html=True
                 )
+
+
 
             # Grafik (TEK BLOK)
             if st.session_state.get("grafik_aktif_hisse") == h:
