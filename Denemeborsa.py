@@ -324,33 +324,44 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # 3. ADIM: HTML Tablo Satırları ve Dahili HTML Action Menu Entegrasyonu
+        # 3. ADIM: HTML Görünümlü Şeffaf Aksiyon Menüsü Satırları
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
             renk_kz = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
             durum_gosterim = f"%{degisim:+.2f}"
 
-            # Saf HTML/CSS/JS kombinasyonu ile Action Menu Satırı
+            # Ana satır düzenini yapıyoruz (HTML)
             st.markdown(
                 f"""
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; position: relative;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex:1; margin-right:15px;">
                         <span style="color:#00F0FF; font-weight:bold; width:30%;">{h}</span>
                         <span style="color:white; width:35%; text-align: center;">{fiyat_gosterim}</span>
                         <span style="color:{renk_kz}; font-weight:bold; width:35%; text-align: right;">{durum_gosterim}</span>
                     </div>
-                    
-                    <div class="action-container">
-                        <button class="dots-btn" onclick="toggleMenu('menu_{h}')">...</button>
-                        <div id="menu_{h}" class="action-menu">
-                            <a href="#" onclick="window.parent.location.search = '?action=grafik&ticker={h}'; return false;">📊 Grafik Aç</a>
-                            <a href="#" class="delete-item" onclick="window.parent.location.search = '?action=sil&ticker={h}'; return false;">🗑️ Hisseyi Sil</a>
-                        </div>
-                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
+
+            # Streamlit'in kendi Popover (Aksiyon Menüsü) bileşenini HTML gibi giydiriyoruz
+            # Bu sayede güvenlik engeline takılmadan mobilde muazzam bir action menu açılır
+            col_bos, col_menu = st.columns([5, 1])
+            with col_menu:
+                with st.popover("...", use_container_width=True):
+                    # Menü içi butonlar tamamen güvenli ve yerel çalışır
+                    if st.button("📊 Grafik Aç/Kapat", key=f"action_graf_{h}", use_container_width=True):
+                        if st.session_state["grafik_aktif_hisse"] == h:
+                            st.session_state["grafik_aktif_hisse"] = None
+                        else:
+                            st.session_state["grafik_aktif_hisse"] = h
+                        st.rerun()
+                        
+                    if st.button("🗑️ Hisseyi Sil", key=f"action_sil_{h}", use_container_width=True):
+                        db.hisse_sil(h)
+                        if st.session_state["grafik_aktif_hisse"] == h:
+                            st.session_state["grafik_aktif_hisse"] = None
+                        st.rerun()
 
             # Grafik Bloğu - Şart sağlandığında ilgili satırın altında render edilir
             if st.session_state.get("grafik_aktif_hisse") == h:
