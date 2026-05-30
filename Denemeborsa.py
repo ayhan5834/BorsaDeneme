@@ -124,7 +124,7 @@ def mobil_tahmin_motoru(df):
 # 4. MOBİL UYGULAMA PANELİ (STREAMLIT YÜZÜ)
 # ==============================================================================
 
-# --- SMART CSS PANEL (Mobil Uyumlu) ---
+# --- SMART CSS & JS PANEL (HTML Aksiyon Menüsü İçin Özel Alan) ---
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
@@ -138,59 +138,95 @@ st.markdown("""
         border: none !important;
         padding: 10px 20px !important;
         font-weight: bold !important;
-        transition: 0.3s !important;
         width: 100% !important;
     }
     
-    /* Tablo ve Küçük Menü Standart Butonları */
+    /* Standart Streamlit Yenileme Butonu */
     div.stButton > button {
         background-color: #007BFF !important;
         color: white !important;
         border-radius: 6px !important;
         border: none !important;
-        padding: 2px 10px !important;
         font-weight: bold !important;
-        font-size: 13px !important;
-        height: 28px !important;
-        line-height: 1.2 !important;
-        transition: 0.3s !important;
-    }
-    
-    div.stButton > button:hover, div.stFormSubmitButton > button:hover {
-        background-color: #0056b3 !important;
-        color: #ffffff !important;
     }
 
     div[data-testid="stForm"] { background: transparent; border: none; padding: 0; }
+    div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p { color: #FFFFFF !important; }
     
-    /* Giriş alanının üstündeki açıklama yazısını beyaz yapar */
-    div[data-testid="stTextInput"] label, div[data-testid="stTextInput"] label p {
-        color: #FFFFFF !important;
+    /* --- HTML ACTION MENU CSS --- */
+    .action-container {
+        position: relative;
+        display: inline-block;
     }
-    
-    /* Checkbox yazılarını beyaz yapar */
-    div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p {
-        color: #FFFFFF !important;
+    .dots-btn {
+        background: none;
+        border: none;
+        color: #00F0FF;
+        font-size: 20px;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 0 10px;
+        line-height: 1;
     }
-    
-    /* Popover menü tasarımı */
-    div[data-testid="stPopover"] button {
-        background: none !important;
-        border: none !important;
-        box-shadow: none !important;
-        color: #FFFFFF !important;
-        text-align: left !important;
-        padding: 10px 0px !important;
-        width: 100% !important;
-        border-radius: 0 !important;
-        font-size: 14px !important;
-        transition: none !important;
+    .action-menu {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 25px;
+        background-color: #1E1E1E;
+        border: 1px solid #333333;
+        border-radius: 8px;
+        z-index: 999;
+        min-width: 110px;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.5);
     }
-    div[data-testid="stPopover"] button:hover {
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        color: #00F0FF !important;
+    .action-menu a {
+        color: white;
+        padding: 8px 12px;
+        text-decoration: none;
+        display: block;
+        font-size: 13px;
+        font-family: sans-serif;
     }
+    .action-menu a:hover {
+        background-color: #007BFF;
+        color: white;
+    }
+    .action-menu a.delete-item {
+        color: #E74C3C;
+    }
+    .action-menu a.delete-item:hover {
+        background-color: #E74C3C;
+        color: white;
+    }
+    .show { display: block !important; }
     </style>
+
+    <script>
+    function toggleMenu(id) {
+        // Diğer tüm açık menüleri kapat
+        var menus = document.getElementsByClassName("action-menu");
+        for (var i = 0; i < menus.length; i++) {
+            if (menus[i].id !== id) {
+                menus[i].classList.remove("show");
+            }
+        }
+        // İlgili menüyü aç/kapat
+        document.getElementById(id).classList.toggle("show");
+    }
+    // Dışarı tıklanınca menüleri kapatma mekanizması
+    window.onclick = function(event) {
+        if (!event.target.matches('.dots-btn')) {
+            var dropdowns = document.getElementsByClassName("action-menu");
+            for (var i = 0; i < dropdowns.length; i++) {
+                var openDropdown = dropdowns[i];
+                if (openDropdown.classList.contains('show')) {
+                    openDropdown.classList.remove('show');
+                }
+            }
+        }
+    }
+    </script>
 """, unsafe_allow_html=True)
 
 st.title("📱 Mobil Borsa")
@@ -206,24 +242,32 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 with sekme1:
     hisseler = db.listeyi_getir()
 
+    # URL / Sorgu parametrelerinden gelen aksiyon komutlarını dinle
+    sorgu_parametreleri = st.query_params
+    if "action" in sorgu_parametreleri and "ticker" in sorgu_parametreleri:
+        islem = sorgu_parametreleri["action"]
+        hedef_kod = sorgu_parametreleri["ticker"]
+        
+        if islem == "grafik":
+            if st.session_state["grafik_aktif_hisse"] == hedef_kod:
+                st.session_state["grafik_aktif_hisse"] = None
+            else:
+                st.session_state["grafik_aktif_hisse"] = hedef_kod
+        elif islem == "sil":
+            db.hisse_sil(hedef_kod)
+            if st.session_state["grafik_aktif_hisse"] == hedef_kod:
+                st.session_state["grafik_aktif_hisse"] = None
+        
+        # Parametreleri temizle ve ekranı tazele
+        st.query_params.clear()
+        st.rerun()
+
     with st.expander("➕ Yeni Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
             yeni_hisse = st.text_input("Hisse Kodu (örn: ASELS)").upper().strip()
-
             col_maliyet, col_adet = st.columns(2)
-
-            maliyet = col_maliyet.number_input(
-                "Maliyet",
-                value=0.0,
-                step=0.1
-            )
-
-            adet = col_adet.number_input(
-                "Adet",
-                value=0,
-                step=1
-            )
-
+            maliyet = col_maliyet.number_input("Maliyet", value=0.0, step=0.1)
+            adet = col_adet.number_input("Adet", value=0, step=1)
             kaydet_butonu = st.form_submit_button("Kaydet")
 
             if kaydet_butonu and yeni_hisse:
@@ -238,13 +282,11 @@ with sekme1:
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
-        # 1. ADIM: Verileri indir ve hacimleri hesapla (Döngü)
+        # 1. ADIM: Verileri indir ve hacimleri hesapla
         for h, maliyet, adet in hisseler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
-
             try:
                 df = guncel_fiyat_indir(sorgu_kodu)
-
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.droplevel(1)
 
@@ -259,27 +301,16 @@ with sekme1:
                     toplam_maliyet_hacmi += maliyet * adet
                     toplam_guncel_hacim += bugun_fiyat * adet
                 else:
-                    dun_fiyat = (
-                        df["Close"].squeeze().iloc[-2]
-                        if len(df) >= 2
-                        else bugun_fiyat
-                    )
+                    dun_fiyat = df["Close"].squeeze().iloc[-2] if len(df) >= 2 else bugun_fiyat
                     degisim = ((bugun_fiyat - dun_fiyat) / dun_fiyat) * 100
 
-                kartlar_verisi.append(
-                    (h, bugun_fiyat, maliyet, adet, degisim)
-                )
-
+                kartlar_verisi.append((h, bugun_fiyat, maliyet, adet, degisim))
             except:
                 kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
 
-        # 2. ADIM: Toplam Kasa ve Net Durum (Kutusuz Mobil Düzen)
+        # 2. ADIM: Toplam Kasa Görünümü
         if toplam_maliyet_hacmi > 0:
-            toplam_kar_zarar_yuzde = (
-                (toplam_guncel_hacim - toplam_maliyet_hacmi)
-                / toplam_maliyet_hacmi
-            ) * 100
-
+            toplam_kar_zarar_yuzde = ((toplam_guncel_hacim - toplam_maliyet_hacmi) / toplam_maliyet_hacmi) * 100
             renk_kasa = '#2ECC71' if toplam_kar_zarar_yuzde >= 0 else '#E74C3C'
             
             st.markdown(
@@ -293,39 +324,35 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # 3. ADIM: Hisse Listesi (Kutusuz, telefonda yan yana duran esnek yapı ve Grafik Butonlu)
+        # 3. ADIM: HTML Tablo Satırları ve Dahili HTML Action Menu Entegrasyonu
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
-
-            renk_kz = (
-                "#2ECC71" if degisim > 0
-                else "#E74C3C" if degisim < 0
-                else "#FFFFFF"
-            )
-
+            renk_kz = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
             durum_gosterim = f"%{degisim:+.2f}"
 
-            # Satırı telefonda yan yana kitleyen HTML yapısı
+            # Saf HTML/CSS/JS kombinasyonu ile Action Menu Satırı
             st.markdown(
                 f"""
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
-                    <span style="color:#00F0FF; font-weight:bold; flex: 1.5;">{h}</span>
-                    <span style="color:white; flex: 1.5; text-align: center;">{fiyat_gosterim}</span>
-                    <span style="color:{renk_kz}; font-weight:bold; flex: 1.5; text-align: right; padding-right: 10px;">{durum_gosterim}</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex:1; margin-right:15px;">
+                        <span style="color:#00F0FF; font-weight:bold; width:30%;">{h}</span>
+                        <span style="color:white; width:35%; text-align: center;">{fiyat_gosterim}</span>
+                        <span style="color:{renk_kz}; font-weight:bold; width:35%; text-align: right;">{durum_gosterim}</span>
+                    </div>
+                    
+                    <div class="action-container">
+                        <button class="dots-btn" onclick="toggleMenu('menu_{h}')">...</button>
+                        <div id="menu_{h}" class="action-menu">
+                            <a href="?action=grafik&ticker={h}" target="_self">📊 Grafik Aç</a>
+                            <a href="?action=sil&ticker={h}" class="delete-item" target="_self">🗑️ Hisseyi Sil</a>
+                        </div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            # --- SADECE "GRAFİK" YAZAN TETİKLEYİCİ BUTON ---
-            if st.button("Grafik", key=f"btn_graf_{h}"):
-                if st.session_state["grafik_aktif_hisse"] == h:
-                    st.session_state["grafik_aktif_hisse"] = None  # Açıksa kapatır
-                else:
-                    st.session_state["grafik_aktif_hisse"] = h     # Kapalıysa bu hisseyi açar
-                st.rerun()
-
-            # Grafik (TEK BLOK) - Butona tıklandığında hemen altında görünür
+            # Grafik Bloğu - Şart sağlandığında ilgili satırın altında render edilir
             if st.session_state.get("grafik_aktif_hisse") == h:
                 df_graf = grafik_verisi_indir(h + ".IS")
 
@@ -349,22 +376,15 @@ with sekme1:
                         template="plotly_dark",
                         height=230,
                         margin=dict(l=0, r=0, t=10, b=0),
-                        xaxis_rangeslider_visible=False  # Kalabalık yapan alt çubuğu gizler
+                        xaxis_rangeslider_visible=False
                     )
 
-                    st.plotly_chart(
-                        fig,
-                        use_container_width=True
-                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
             st.markdown('<hr style="margin: 4px 0; border: 0; border-top: 1px solid #1A1A1A;">', unsafe_allow_html=True)
 
     st.write("")
-
-    if st.button(
-        "🔄 Verileri Yenile",
-        key="mob_global_yenile"
-    ):
+    if st.button("🔄 Verileri Yenile", key="mob_global_yenile"):
         st.cache_data.clear()
         st.rerun()
             
@@ -391,7 +411,6 @@ with sekme2:
                 potansiyel = ((hedef_fiyat - son_fiyat) / son_fiyat) * 100
                 hacim_onay = df['Volume'].squeeze().iloc[-1] > (df['Volume'].squeeze().rolling(10).mean().iloc[-1] * 0.8)
                 
-                # Sinyal Hesaplama
                 df['RSI'] = ta.momentum.rsi(kapanis, window=14)
                 macd = ta.trend.MACD(kapanis)
                 son_rsi, son_m, son_ms = df['RSI'].iloc[-1], macd.macd().iloc[-1], macd.macd_signal().iloc[-1]
@@ -414,27 +433,17 @@ with sekme2:
                 with anlz_col2:
                     fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='#121212')
                     ax.set_facecolor('#1E1E1E')
-
-                    # --- HASSAS EKSEN AYARLARI ---
                     ax.yaxis.set_major_locator(MultipleLocator(5.0))
                     ax.yaxis.set_minor_locator(MultipleLocator(1.0))
-
-                    # --- ÇİZGİLER ---
                     ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
                     ax.plot(range(29, 35), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), 
                             color='#FF00FF', linestyle='--', linewidth=2, label="YZ Tahmin")
-
-                    # --- GÖRSEL DÜZENLEMELER ---
                     ax.tick_params(colors='white', labelsize=9)
                     ax.grid(True, color='#2D2D2D', linestyle='--')
                     ax.legend(loc='upper left', fontsize=8, facecolor='#1E1E1E', labelcolor='white')
-                    
-                    for spine in ax.spines.values():
-                        spine.set_visible(False)
-                    
+                    for spine in ax.spines.values(): spine.set_visible(False)
                     fig.tight_layout()
                     st.pyplot(fig)
-                
         except: st.error("Veri çekilemedi.")
      
 # --- 3. SEKME: MEGA RADAR ---
@@ -447,7 +456,6 @@ with sekme3:
         guncel_hisse_listesi = dinamik_bist_listesi_yukle()
         bulunanlar = []
         toplam = len(guncel_hisse_listesi)
-        
         ilerleme_bari = st.progress(0)
         durum_alani = st.empty()
         sonuc_alani = st.empty()  
@@ -455,19 +463,16 @@ with sekme3:
         for idx, h in enumerate(guncel_hisse_listesi):
             durum_alani.write(f"<span style='color:white; font-size:14px;'>Taranıyor: {h} ({idx+1}/{toplam})</span>", unsafe_allow_html=True)
             ilerleme_bari.progress((idx + 1) / toplam)
-            
             try:
                 df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
                 if df is None or len(df) < 20: continue
                 if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-                
                 kapanis, hacim = df['Close'].squeeze(), df['Volume'].squeeze()
                 son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
                 macd_c = ta.trend.MACD(kapanis).macd().iloc[-1]
                 macd_s = ta.trend.MACD(kapanis).macd_signal().iloc[-1]
                 
                 sinyal_var = (son_rsi < 42 and macd_c > macd_s) or (sadece_guclu == False and son_rsi < 30)
-                
                 hacim_ort = hacim.rolling(10).mean().iloc[-1]
                 hacim_onayli = hacim.iloc[-1] > (hacim_ort * 0.8)
                 
@@ -476,16 +481,11 @@ with sekme3:
                         bulunanlar.append(h)
                         with sonuc_alani.container():
                             st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
-                            for hisse in bulunanlar:
-                                st.markdown(f"🔹 **{hisse}**")
-            except: 
-                continue
-        
+                            for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
+            except: continue
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
-        
-        if not bulunanlar:
-            st.warning("Seçili kriterlerde hisse bulunamadı.")
+        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
         
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
