@@ -24,7 +24,7 @@ matplotlib.use('Agg')
 logging.getLogger('matplotlib').setLevel(logging.ERROR)
 
 # ==============================================================================
-# STREAMLIT SAYFA AYARLARI
+# STREAMLIT SAYFA AYARLARI (Mobilde tam ekran deneyimi için en üste alınmalı)
 # ==============================================================================
 st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
@@ -81,6 +81,7 @@ def dinamik_bist_listesi_yukle():
     if os.path.exists(csv_yolu):
         df = pd.read_csv(csv_yolu)
         return df["kod"].tolist()
+    
     return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
 
 # --- HIZLANDIRICI ÖNBELLEK FONKSİYONLARI ---
@@ -92,6 +93,7 @@ def guncel_fiyat_indir(sorgu_kodu):
 def grafik_verisi_indir(sorgu_kodu):
     return yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
 
+# Canlı listeyi değişkene aktar
 TUM_BIST = dinamik_bist_listesi_yukle()
 
 # ==============================================================================
@@ -160,6 +162,7 @@ st.markdown("""
 st.title("📱 Mobil Borsa")
 db = Veritabani()
 
+# Oturum Durum Yönetimleri
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
 
@@ -167,7 +170,7 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "HİSSE ANALİZ", "RADAR"])
 
 # --- 1. SEKME: PORTFÖY ---
 with sekme1:
-    hisserler = db.listeyi_getir()
+    hisseler = db.listeyi_getir()
 
     with st.expander("➕ Yeni Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
@@ -181,15 +184,16 @@ with sekme1:
                 db.hisse_ekle(yeni_hisse, maliyet, adet)
                 st.rerun()
 
-    if not hisserler:
+    if not hisseler:
         st.warning("Henüz takip listesinde hisse yok.")
+
     else:
         toplam_maliyet_hacmi = 0.0
         toplam_guncel_hacim = 0.0
         kartlar_verisi = []
 
         # 1. ADIM: Verileri indir ve hacimleri hesapla
-        for h, maliyet, adet in hisserler:
+        for h, maliyet, adet in hisseler:
             sorgu_kodu = h if h.endswith(".IS") else h + ".IS"
             try:
                 df = guncel_fiyat_indir(sorgu_kodu)
@@ -200,7 +204,7 @@ with sekme1:
                     kartlar_verisi.append((h, 0.0, maliyet, adet, 0.0))
                     continue
 
-                bugun_fiyat = float(df["Close"].squeeze().iloc[-1])
+                bugun_fiyat = df["Close"].squeeze().iloc[-1]
 
                 if maliyet > 0:
                     degisim = ((bugun_fiyat - maliyet) / maliyet) * 100
@@ -230,8 +234,12 @@ with sekme1:
                 unsafe_allow_html=True
             )
             
-        # 3. ADIM: İstediğin Yeni Kompakt Çift Satırlı Mobil Düzen
+      
+        # ==============================================================================
+        # 3. ADIM: Jilet Gibi İnce Üç Nokta ve Yeni Kompakt Çift Satırlı Mobil Düzen
+        # ==============================================================================
         for h, fiyat, maliyet, adet, degisim in kartlar_verisi:
+            # Fiyat ve Maliyet metinlerini güvenli şekilde hazırla
             fiyat_gosterim = f"{fiyat:.2f} TL" if fiyat > 0 else "--"
             maliyet_gosterim = f"Mly: {maliyet:.2f}" if maliyet > 0 else "Mly: --"
             
@@ -246,10 +254,11 @@ with sekme1:
             else:
                 kz_tl_gosterim = "--"
                 kz_yuzde_gosterim = f"%{degisim:+.2f}" if fiyat > 0 else "--"
-                renk_kz = "#2ECC71" if degisim > 0 else "#E74C3C" if degisim < 0 else "#FFFFFF"
+                renk_kz = "#888888" # Veri yoksa nötr gri yapalım, sırıtmasın
 
             col_veri, col_buton = st.columns([11, 1])
 
+            # HTML kodunun ekrana sızmasını engellemek için TEK BİR st.markdown içinde birleştirdik
             with col_veri:
                 st.markdown(
                     f"""
@@ -459,5 +468,7 @@ with sekme3:
                             for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
             except: continue
         durum_alani.text("Tarama tamamlandı!")
+        ilerleme_bari.empty()
+        if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
         ilerleme_bari.empty()
         if not bulunanlar: st.warning("Seçili kriterlerde hisse bulunamadı.")
