@@ -285,7 +285,7 @@ with sekme1:
             renk_kz = "#2ECC71" if degisim > 0 else ("#E74C3C" if degisim < 0 else "#FFFFFF")
             durum_gosterim = f"%{degisim:+.2f}"
             
-           with col_kod:
+            with col_kod:
                with st.popover(f"⚙️ {h}"):
                    if st.button("Analiz/Grafik", key=f"gr_{h}"):
                        st.session_state["grafik_aktif_hisse"] = (
