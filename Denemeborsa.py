@@ -162,7 +162,7 @@ st.markdown("""
     div.stButton > button[key^="detay_sil_"] {
         background-color: #E74C3C !important;
         color: white !important;
-        font-size: 11.5px !important;
+        font-size: 8.5px !important;
         white-space: nowrap !important;
         padding: 6px 4px !important;
         font-weight: bold !important;
@@ -170,7 +170,7 @@ st.markdown("""
     div.stButton > button[key^="detay_analiz_"] {
         background-color: #FFFFFF !important;
         color: #121212 !important;
-        font-size: 11.5px !important;
+        font-size: 8.5px !important;
         white-space: nowrap !important;
         padding: 6px 4px !important;
         font-weight: bold !important;
