@@ -361,7 +361,7 @@ with aktif_sekme[0]:
                         """, unsafe_allow_html=True)
                             
 
-                        btn_alt1, btn_alt2 = st.columns([1,1], gap="small")
+                        btn_alt1, btn_alt2 = st.columns(2)
 
                         with btn_alt1:
                             sil = st.button("🗑️ Sil",key=f"detay_sil_{h}", use_container_width=True)
