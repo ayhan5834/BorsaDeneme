@@ -167,6 +167,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
+
+
 st.title("🖥️ Borsa")
 db = Veritabani()
 
@@ -316,7 +319,7 @@ with aktif_sekme[0]:
 
                         st.markdown("<div style='background-color: #1A1A1A; padding: 12px; border-radius: 8px; margin: 5px 0;'>", unsafe_allow_html=True)
                         
-                        detay_col1, detay_col2 = st.columns([35, 65])
+                        detay_col1, detay_col2 = st.columns([30, 70])
                         
                         with detay_col1:
                             st.markdown(f"""
@@ -345,29 +348,29 @@ with aktif_sekme[0]:
                             st.pyplot(fig)
                         
                         st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                      
                         
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
                         st.markdown("""
                         <style>
-
                         div.stButton > button {
                             height:42px !important;
                             border-radius:8px !important;
                             font-size:12px !important;
                             white-space:nowrap !important;
                         }
-
                         </style>
                         """, unsafe_allow_html=True)
-                            
 
-                        btn_alt1, btn_alt2 = st.columns(2)
+                        st.divider()
 
-                        with btn_alt1:
-                            sil = st.button("🗑️ Sil",key=f"detay_sil_{h}", use_container_width=True)
+                        col_sil, col_analiz = st.columns([1, 1], gap="small")
 
-                        with btn_alt2:
-                            analiz = st.button( "📈 Analiz",key=f"detay_analiz_{h}", use_container_width=True)
+                        with col_sil:
+                            sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
+
+                        with col_analiz:
+                            analiz = st.button( "📈 Analiz", key=f"detay_analiz_{h}", use_container_width=True )
 
                         if sil:
                             db.hisse_sil(h)
