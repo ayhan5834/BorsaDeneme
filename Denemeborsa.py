@@ -319,7 +319,7 @@ with aktif_sekme[0]:
 
                         st.markdown("<div style='background-color: #1A1A1A; padding: 12px; border-radius: 8px; margin: 5px 0;'>", unsafe_allow_html=True)
                         
-                        detay_col1, detay_col2 = st.columns([30, 70])
+                        detay_col1, detay_col2 = st.columns([1, 2])
                         
                         with detay_col1:
                             st.markdown(f"""
