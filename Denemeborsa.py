@@ -8,7 +8,7 @@ Created on Fri May 29 15:42:45 2026
 import os
 import logging
 import sqlite3
-import numpy as np  
+import numpy as np
 import pandas as pd
 import yfinance as yf
 import ta
@@ -130,6 +130,7 @@ def mobil_tahmin_motoru(df):
         return tahmin[-1], tahmin
     except: return 0.0, np.zeros(5)
 
+# --- CSS PANEL ---
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
@@ -137,60 +138,22 @@ st.markdown("""
     div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
     div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-    /* 1. SADECE + / - BUTONLARINI MİNİ YAPMA (Bunları kodda 'primary' olarak ayarlayacağız) */
-    button[kind="primary"] {
-        width: 28px !important;
-        height: 28px !important;
-        min-width: 28px !important;
-        min-height: 28px !important;
+    /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px !important;
+        min-height: 16px !important;
         padding: 0px !important;
-        font-size: 14px !important;
+        font-size: 9px !important;
+        line-height: 16px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        border-radius: 6px !important;
-        margin-top: 5px !important;
+        border-radius: 4px !important;
+        margin-top: 10px !important;
         background-color: #2D2D2D !important;
-        border: 1px solid #444 !important;
-        color: #00F0FF !important;
-    }
-
-    /* 2. ALT BUTONLAR (SİL & ANALİZ) GÖRÜNÜMÜ VE RENKLERİ */
-    /* İlk sütundaki buton (SİL) */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) button[kind="secondary"] {
-        background-color: #E74C3C !important;
-        color: white !important;
-        font-size: 13px !important;
-        font-weight: bold !important;
-        white-space: nowrap !important;
-        padding: 8px 5px !important;
-        width: 100% !important;
         border: none !important;
-    }
-    
-    /* İkinci sütundaki buton (ANALİZ) */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) button[kind="secondary"] {
-        background-color: #FFFFFF !important;
-        color: #121212 !important;
-        font-size: 13px !important;
-        font-weight: bold !important;
-        white-space: nowrap !important;
-        padding: 8px 5px !important;
-        width: 100% !important;
-        border: none !important;
-    }
-
-    /* 3. MOBİLDE SİL VE ANALİZ BUTONLARININ YAN YANA KALMASINI ZORLAMA */
-    @media (max-width: 768px) {
-        div[data-testid="stHorizontalBlock"]:has(button[kind="secondary"]) {
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(button[kind="secondary"]) > div[data-testid="column"] {
-            width: 50% !important;
-            min-width: 50% !important;
-            flex-basis: 50% !important;
-        }
     }
 
     div[data-testid="stPopover"] button {
@@ -382,19 +345,20 @@ with aktif_sekme[0]:
                             st.pyplot(fig)
                         
                         st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                        
+                        # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
                         btn_alt1, btn_alt2 = st.columns(2)
                         
                         with btn_alt1:
-                            if st.button("🗑️ Listemden Çıkar", key=f"detay_sil_{h}", use_container_width=True):
+                            if st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True):
                                 db.hisse_sil(h)
                                 st.session_state["grafik_aktif_hisse"] = None
                                 st.toast(f"❌ {h} başarıyla silindi.")
                                 st.rerun()
                                 
                         with btn_alt2:
-                            if st.button("📈 Teknik Analizi Aç", key=f"detay_analiz_{h}", use_container_width=True):
+                            if st.button("📈 Analiz", key=f"detay_analiz_{h}", use_container_width=True):
                                 st.session_state["analiz_edilen_hisse"] = h
-                                # Hisse Analiz sekmesine yönlendirme simülasyonu
                                 st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
                                 st.rerun()
                                 
