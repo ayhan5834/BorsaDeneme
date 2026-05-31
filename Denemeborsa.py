@@ -216,7 +216,7 @@ with sekme1:
                     """, unsafe_allow_html=True)
 
                 with st.popover("..."):
-                    if st.button("📊 Grafik Aç/Kapat", key=f"action_graf_{h}", use_container_width=True):
+                    
                         st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
                         st.rerun()
                         
