@@ -168,13 +168,46 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📱 Mobil Borsa")
+st.title("🖥️ Borsa")
 db = Veritabani()
 
+if "menü_aktif_hisse" not in st.session_state:
+    st.session_state["menü_aktif_hisse"] = None
+if "grafik_goster" not in st.session_state:
+    st.session_state["grafik_goster"] = False
 if "analiz_edilen_hisse" not in st.session_state:
     st.session_state["analiz_edilen_hisse"] = ""
+    
+def menü_tetikleyici(hisse_adi):
+    if st.session_state["menü_aktif_hisse"] == hisse_adi:
+        st.session_state["menü_aktif_hisse"] = None  
+        st.session_state["grafik_goster"] = False
+    else:
+        st.session_state["menü_aktif_hisse"] = hisse_adi 
+        st.session_state["grafik_goster"] = False
 
-sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "ANALİZ", "RADAR"])
+sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
+
+st.markdown("""
+    <style>
+    div[data-testid="stPopover"] button {
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #FFFFFF !important;
+        text-align: left !important;
+        padding: 10px 0px !important;
+        width: 100% !important;
+        border-radius: 0 !important;
+        font-size: 14px !important;
+        transition: none !important;
+    }
+    div[data-testid="stPopover"] button:hover {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        color: #00F0FF !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
 with sekme1:
@@ -193,9 +226,24 @@ with sekme1:
     if not hisserler:
         st.warning("Takip listesi boş.")
     else:
-        # BAŞLIKLAR
+        # --- SABİT (STICKY) BAŞLIKLAR ---
         st.markdown("""
-            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:12px; color:#888888; padding-right:45px; margin-bottom:5px;">
+            <div style="
+                position: -webkit-sticky;
+                position: sticky;
+                top: 0px;
+                background-color: #121212;
+                z-index: 999;
+                display: flex;
+                justify-content: space-between;
+                font-weight: bold;
+                font-size: 12px;
+                color: #888888;
+                padding-right: 45px;
+                padding-top: 10px;
+                padding-bottom: 5px;
+                margin-bottom: 0px;
+            ">
                 <span style="width:25%; text-align:left;">HİSSE/ADET</span>
                 <span style="width:25%; text-align:center;">FİYAT/MLY</span>
                 <span style="width:25%; text-align:center;">K/Z (TL)</span>
@@ -206,10 +254,11 @@ with sekme1:
 
         for h, maliyet, adet in hisserler:
             sorgu = h if h.endswith(".IS") else h + ".IS"
-            
             canli_fiyat = guvenli_fiyat_yakala(sorgu)
             
             if canli_fiyat is not None:
+                toplam_maliyet = maliyet * adet
+                
                 if maliyet > 0:
                     kz_tl = (canli_fiyat - maliyet) * adet
                     degisim_yuzde = ((canli_fiyat - maliyet) / maliyet) * 100
@@ -231,8 +280,9 @@ with sekme1:
                                 <div style="color:white; font-size:14px;">{canli_fiyat:.2f}</div>
                                 <div style="color:#666; font-size:11px;">M:{maliyet:.2f}</div>
                             </div>
-                            <div style="width:25%; text-align:center; color:{renk}; font-size:13px; font-weight:500;">
-                                {kz_tl:+,.2f}
+                            <div style="width:25%; text-align:center;">
+                                <div style="color:{renk}; font-size:13px; font-weight:500;">{kz_tl:+,.2f}</div>
+                                <div style="color:#888; font-size:11px;">{toplam_maliyet:,.2f} TL</div>
                             </div>
                             <div style="width:25%; text-align:right; color:{renk}; font-weight:bold; font-size:13px;">
                                 %{degisim_yuzde:+.2f}
@@ -240,7 +290,7 @@ with sekme1:
                         </div>
                     """, unsafe_allow_html=True)
 
-                with col_btn:  # col_buton hatası col_btn olarak düzeltildi
+                with col_btn:
                     is_active = st.session_state.get("grafik_aktif_hisse") == h
                     button_label = "➖" if is_active else "➕"
                     
@@ -270,9 +320,9 @@ with sekme1:
 
 # --- 2. SEKME: HİSSE ANALİZ ---
 with sekme2:
-    st.subheader("🔍 Hisse Analiz")
+    st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
-        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın ").upper().strip()
+        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın (Örn: THYAO)").upper().strip()
         analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
         if analiz_tetiklendi and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
