@@ -322,37 +322,14 @@ with aktif_sekme[0]:
                         detay_col1, detay_col2 = st.columns([35, 65])
                         
                         with detay_col1:
-                            st.markdown(
-                                f"""
-                                <div style="background:#161616;
-                                            border-radius:8px;
-                                            padding:8px;
-                                            font-size:12px;">
-
-                                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                        <span style="color:#888;">Alış</span>
-                                        <span style="color:white; font-weight:bold;">{canli_fiyat:.2f}</span>
-                                    </div>
-
-                                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                        <span style="color:#888;">Satış</span>
-                                        <span style="color:white; font-weight:bold;">{canli_fiyat:.2f}</span>
-                                    </div>
-
-                                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                        <span style="color:#888;">Yüksek</span>
-                                        <span style="color:#2ECC71; font-weight:bold;">{gun_yuksek:.2f}</span>
-                                    </div>
-
-                                    <div style="display:flex; justify-content:space-between;">
-                                        <span style="color:#888;">Düşük</span>
-                                        <span style="color:#E74C3C; font-weight:bold;">{gun_dusuk:.2f}</span>
-                                    </div>
-
+                            st.markdown(f"""
+                                <div style="font-size: 13px; line-height: 1.8; color: #BBBBBB; padding-top: 5px;">
+                                    <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #2D2D2D; padding-bottom:2px;"><span>Alış:</span><b style="color:white;">{canli_fiyat:.2f}</b></div>
+                                    <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #2D2D2D; padding-top:2px; padding-bottom:2px;"><span>Satış:</span><b style="color:white;">{canli_fiyat:.2f}</b></div>
+                                    <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #2D2D2D; padding-top:2px; padding-bottom:2px;"><span>Yüksek:</span><b style="color:#2ECC71;">{gun_yuksek:.2f}</b></div>
+                                    <div style="display:flex; justify-content:space-between; padding-top:2px;"><span>Düşük:</span><b style="color:#E74C3C;">{gun_dusuk:.2f}</b></div>
                                 </div>
-                                """,
-                                unsafe_allow_html=True
-                            )
+                            """, unsafe_allow_html=True)
                             
                         with detay_col2:
                             kapanis = df_gr['Close'].squeeze()
