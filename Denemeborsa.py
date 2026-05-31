@@ -5,7 +5,6 @@ Created on Fri May 29 15:42:45 2026
 @author: EmirAysu
 """
 
-
 import os
 import logging
 import sqlite3
@@ -226,14 +225,10 @@ with sekme1:
     if not hisserler:
         st.warning("Takip listesi boş.")
     else:
-        # --- SABİT (STICKY) BAŞLIKLAR ---
+        # --- TAMAMEN SABİT BAŞLIKLAR (SAYFAYLA ASLA KAYMAZ) ---
         st.markdown("""
             <div style="
-                position: -webkit-sticky;
-                position: sticky;
-                top: 0px;
                 background-color: #121212;
-                z-index: 999;
                 display: flex;
                 justify-content: space-between;
                 font-weight: bold;
@@ -249,8 +244,12 @@ with sekme1:
                 <span style="width:25%; text-align:center;">K/Z (TL)</span>
                 <span style="width:25%; text-align:right;">DEĞİŞİM</span>
             </div>
-            <hr style="margin:0 0 10px 0; border:0; border-top:1px solid #333;">
+            <hr style="margin:0 0 5px 0; border:0; border-top:1px solid #333;">
         """, unsafe_allow_html=True)
+
+        # --- KAYDIRILABİLİR ALAN BAŞLANGICI ---
+        # Bu div sayesinde listeniz telefonda ekranı yukarı taşımayacak, kendi içinde kayacak.
+        st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
 
         for h, maliyet, adet in hisserler:
             sorgu = h if h.endswith(".IS") else h + ".IS"
@@ -282,7 +281,7 @@ with sekme1:
                             </div>
                             <div style="width:25%; text-align:center;">
                                 <div style="color:{renk}; font-size:13px; font-weight:500;">{kz_tl:+,.2f}</div>
-                                <div style="color:#888; font-size:11px;">{toplam_maliyet:,.2f} TL</div>
+                                <div style="color:#888; font-size:11px;">({toplam_maliyet:,.2f} TL)</div>
                             </div>
                             <div style="width:25%; text-align:right; color:{renk}; font-weight:bold; font-size:13px;">
                                 %{degisim_yuzde:+.2f}
@@ -313,6 +312,9 @@ with sekme1:
                 st.markdown('<hr style="margin:5px 0; border:0; border-top:1px solid #1A1A1A;">', unsafe_allow_html=True)
             else:
                 st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+        # --- KAYDIRILABİLİR ALAN BİTİŞİ ---
 
     if st.button("🔄 Verileri Yenile", key="global_refresh_btn"):
         st.cache_data.clear()
