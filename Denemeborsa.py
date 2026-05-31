@@ -215,11 +215,10 @@ with sekme1:
                         </div>
                     """, unsafe_allow_html=True)
 
-                with col_btn:
-                    
-                        if st.button("📊 Grafik", key=f"gr_{h}"):
-                            st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
-                            st.rerun()
+                with st.popover("..."):
+                    if st.button("📊 Grafik Aç/Kapat", key=f"action_graf_{h}", use_container_width=True):
+                        st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
+                        st.rerun()
                         
 
                 if st.session_state.get("grafik_aktif_hisse") == h:
