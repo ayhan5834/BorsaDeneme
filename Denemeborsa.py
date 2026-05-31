@@ -16,7 +16,6 @@ import ta
 from sklearn.linear_model import HuberRegressor
 import plotly.graph_objects as go
 import streamlit as st
-from matplotlib.ticker import MultipleLocator
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -161,7 +160,7 @@ sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY", "ANALİZ", "RADAR"])
 
 # --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
 with sekme1:
-    hisseler = db.listeyi_getir()
+    hisserler = db.listeyi_getir()
 
     with st.expander("➕ Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
@@ -173,7 +172,7 @@ with sekme1:
                 db.hisse_ekle(yeni_hisse, maliyet, adet)
                 st.rerun()
 
-    if not hisseler:
+    if not hisserler:
         st.warning("Takip listesi boş.")
     else:
         # BAŞLIKLAR
@@ -187,7 +186,7 @@ with sekme1:
             <hr style="margin:0 0 10px 0; border:0; border-top:1px solid #333;">
         """, unsafe_allow_html=True)
 
-        for h, maliyet, adet in hisseler:
+        for h, maliyet, adet in hisserler:
             sorgu = h if h.endswith(".IS") else h + ".IS"
             
             canli_fiyat = guvenli_fiyat_yakala(sorgu)
@@ -223,12 +222,10 @@ with sekme1:
                         </div>
                     """, unsafe_allow_html=True)
 
-                with col_buton:
-                    # Durumu kontrol et
+                with col_btn:  # col_buton hatası col_btn olarak düzeltildi
                     is_active = st.session_state.get("grafik_aktif_hisse") == h
                     button_label = "➖" if is_active else "➕"
                     
-                    # Doğrudan on_click kullanarak mobil çökmelerini engelliyoruz
                     st.button(
                         button_label, 
                         key=f"btn_graf_{h}", 
@@ -236,16 +233,11 @@ with sekme1:
                         on_click=grafik_tetikle,
                         args=(h, is_active))
 
-                       
-
-                    
-                   
-                        
-
                 if st.session_state.get("grafik_aktif_hisse") == h:
                     df_gr = grafik_verisi_indir(sorgu)
                     if not df_gr.empty:
-                        if isinstance(df_gr.columns, pd.MultiIndex): df_gr.columns = df_gr.columns.droplevel(1)
+                        if isinstance(df_gr.columns, pd.MultiIndex): 
+                            df_gr.columns = df_gr.columns.droplevel(1)
                         fig = go.Figure(data=[go.Candlestick(x=df_gr.index, open=df_gr['Open'], high=df_gr['High'], low=df_gr['Low'], close=df_gr['Close'])])
                         fig.update_layout(template="plotly_dark", height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
                         st.plotly_chart(fig, use_container_width=True)
@@ -272,7 +264,8 @@ with sekme2:
         sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
         try:
             df = yf.download(sorgu_kodu, period="60d", interval="1d", progress=False)
-            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
+            if isinstance(df.columns, pd.MultiIndex): 
+                df.columns = df.columns.droplevel(1)
             
             if not df.empty:
                 kapanis = df['Close'].squeeze()
@@ -306,11 +299,14 @@ with sekme2:
                     ax.set_facecolor('#1E1E1E')
                     ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
                     ax.plot(range(29, 35), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), color='#FF00FF', linestyle='--', label="Tahmin")
-                    ax.tick_params(colors='white'); ax.grid(True, color='#2D2D2D'); ax.legend()
+                    ax.tick_params(colors='white')
+                    ax.grid(True, color='#2D2D2D')
+                    ax.legend()
                     st.pyplot(fig)
-        except: st.error("Veri çekilemedi.")
+        except: 
+            st.error("Veri çekilemedi.")
      
-# --- 3. SEKME: MEGA RADAR ---
+# --- 3. SEKME: MEGA RADAR (Tamamlanan Bölüm) ---
 with sekme3:
     st.subheader("🔍 Radar Taraması")
     
@@ -334,8 +330,10 @@ with sekme3:
             
             try:
                 df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
-                if df is None or len(df) < 20: continue
-                if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
+                if df is None or len(df) < 20: 
+                    continue
+                if isinstance(df.columns, pd.MultiIndex): 
+                    df.columns = df.columns.droplevel(1)
                 
                 kapanis, hacim = df['Close'].squeeze(), df['Volume'].squeeze()
                 son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
@@ -360,7 +358,8 @@ with sekme3:
         ilerleme_bari.empty()
         
         if bulunanlar:
-            st.success(f"✅ {len(bulunanlar)} adet hisse kriterlerine uygun:")
-            for hisse in bulunanlar: st.markdown(f"🔹 **{hisse}**")
+            st.success(f"✅ {len(bulunanlar)} adet hisse kriterlerinize uygun:")
+            for hisse in bulunanlar: 
+                st.markdown(f"🔹 **{hisse}**")
         else:
-            st.warning("Seçili kriterlerde hisse bulunamadı.")
+            st.warning("Seçili kriterlere uygun hisse bulunamadı.")
