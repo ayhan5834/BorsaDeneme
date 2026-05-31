@@ -367,14 +367,14 @@ with aktif_sekme[0]:
                         btn_alt1, btn_alt2 = st.columns(2)
                         
                         with btn_alt1:
-                            if st.button("🗑️ Listemden Çıkar", key=f"detay_sil_{h}", use_container_width=True):
+                            if st.button("Listemden Çıkar", key=f"detay_sil_{h}", use_container_width=True):
                                 db.hisse_sil(h)
                                 st.session_state["grafik_aktif_hisse"] = None
                                 st.toast(f"❌ {h} başarıyla silindi.")
                                 st.rerun()
                                 
                         with btn_alt2:
-                            if st.button("📈 Teknik Analizi Aç", key=f"detay_analiz_{h}", use_container_width=True):
+                            if st.button("Teknik Analiz", key=f"detay_analiz_{h}", use_container_width=True):
                                 st.session_state["analiz_edilen_hisse"] = h
                                 # Hisse Analiz sekmesine yönlendirme simülasyonu
                                 st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
