@@ -319,34 +319,57 @@ with aktif_sekme[0]:
 
                         st.markdown("<div style='background-color: #1A1A1A; padding: 12px; border-radius: 8px; margin: 5px 0;'>", unsafe_allow_html=True)
                         
-                        # Fiyat bilgileri
-                        st.markdown(f"""
-                        <div style="font-size:13px; line-height:1.8; color:#BBBBBB;">
-                            <div>Alış: <b style="color:white;">{canli_fiyat:.2f}</b></div>
-                            <div>Satış: <b style="color:white;">{canli_fiyat:.2f}</b></div>
-                            <div>Yüksek: <b style="color:#2ECC71;">{gun_yuksek:.2f}</b></div>
-                            <div>Düşük: <b style="color:#E74C3C;">{gun_dusuk:.2f}</b></div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        detay_col1, detay_col2 = st.columns([35, 65])
+                        
+                        with detay_col1:
+                            st.markdown(f"""
+                            <div style="
+                                background:#161616;
+                                border-radius:8px;
+                                padding:8px;
+                                font-size:12px;
+                            ">
 
-                        kapanis = df_gr['Close'].squeeze()
-                        hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df_gr)
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <span style="color:#888;">Alış</span>
+                                    <span style="color:white; font-weight:bold;">{canli_fiyat:.2f}</span>
+                                </div>
 
-                        fig, ax = plt.subplots(figsize=(6, 2.5), facecolor='#1A1A1A')
-                        ax.set_facecolor('#1E1E1E')
-                        ax.plot(range(15), kapanis.tail(15).values, linewidth=1.5)
-                        ax.plot(range(14, 20),
-                                np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)),
-                                linestyle='--',
-                                linewidth=1.5)
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <span style="color:#888;">Satış</span>
+                                    <span style="color:white; font-weight:bold;">{canli_fiyat:.2f}</span>
+                                </div>
 
-                        ax.tick_params(labelsize=7)
-                        for spine in ax.spines.values():
-                            spine.set_visible(False)
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <span style="color:#888;">Yüksek</span>
+                                    <span style="color:#2ECC71; font-weight:bold;">{gun_yuksek:.2f}</span>
+                                </div>
 
-                        fig.tight_layout()
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span style="color:#888;">Düşük</span>
+                                    <span style="color:#E74C3C; font-weight:bold;">{gun_dusuk:.2f}</span>
+                                </div>
 
-                        st.pyplot(fig, use_container_width=True)
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                        with detay_col2:
+                            kapanis = df_gr['Close'].squeeze()
+                            hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df_gr)
+                            
+                            # Şık Mini Grafik Çizimi
+                            fig, ax = plt.subplots(figsize=(6, 2.5), facecolor='#1A1A1A')
+                            ax.set_facecolor('#1E1E1E')
+                            ax.plot(range(15), kapanis.tail(15).values, color='#00F0FF', linewidth=1.5, label="Gerçek")
+                            ax.plot(range(14, 20), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), color='#FF00FF', linestyle='--', linewidth=1.5, label="Tahmin")
+                            ax.tick_params(colors='white', labelsize=7)
+                            ax.grid(True, color='#2D2D2D', linestyle='--')
+                            for spine in ax.spines.values():
+                                spine.set_visible(False)
+                            fig.tight_layout()
+                            st.pyplot(fig)
+                        
+                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
                       
                         
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
@@ -383,6 +406,8 @@ with aktif_sekme[0]:
                             st.rerun()
                                 
                         
+                                
+                        st.markdown("</div>", unsafe_allow_html=True)
                 
                 st.markdown('<hr style="margin:5px 0; border:0; border-top:1px solid #1A1A1A;">', unsafe_allow_html=True)
             else:
