@@ -167,21 +167,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
-st.markdown("""
-    <style>
-    /* Sil ve Analiz butonlarını yan yana hizala */
-    div[data-testid="column"] > div:has(button[id*="detay_sil_"]),
-    div[data-testid="column"] > div:has(button[id*="detay_analiz_"]) {
-        display: inline-block !important;
-        width: 48% !important;
-        margin-right: 2% !important;
-        vertical-align: top !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-
 st.title("🖥️ Borsa")
 db = Veritabani()
 
