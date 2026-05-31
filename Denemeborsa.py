@@ -270,9 +270,9 @@ with sekme1:
 
 # --- 2. SEKME: HİSSE ANALİZ ---
 with sekme2:
-    st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
+    st.subheader("🔍 Hisse Analiz")
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
-        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın (Örn: THYAO)").upper().strip()
+        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın ").upper().strip()
         analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
         if analiz_tetiklendi and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
