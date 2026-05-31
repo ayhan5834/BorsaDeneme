@@ -216,18 +216,17 @@ with sekme1:
                     """, unsafe_allow_html=True)
 
                 with col_buton:
-                # Tablo satırıyla tam hizada açılan mini işlem butonu
-                     with st.popover("..."):
-                          if st.button("📊 Grafik Aç/Kapat", key=f"action_graf_{h}", use_container_width=True):
-                              st.session_state["grafik_aktif_hisse"] = None if st.session_state["grafik_aktif_hisse"] == h else h
-                              st.rerun()
-                        
-                   
-                          if st.button("🗑️ Hisseyi Sil", key=f"action_sil_{h}", use_container_width=True):
-                               db.hisse_sil(h)
-                               if st.session_state["grafik_aktif_hisse"] == h: st.session_state["grafik_aktif_hisse"] = None
-                                     st.rerun()
-                        
+                    # 1. Bu hissenin grafiği şu an açık mı kontrol et
+                    is_active = st.session_state.get("grafik_aktif_hisse") == h
+                    
+                    # Grafik açıksa buton '-' olur, kapalıysa '+' olur
+                    button_label = "➖" if is_active else "➕"
+                    
+                    # 2. Doğrudan simgeye basınca çalışacak buton
+                    if st.button(button_label, key=f"action_graf_{h}", use_container_width=True):
+                        # Grafik açıksa kapat (None yap), kapalıysa bu hisseyi aktif et (h yap)
+                        st.session_state["grafik_aktif_hisse"] = None if is_active else h
+                        st.rerun()
                        
 
                     
