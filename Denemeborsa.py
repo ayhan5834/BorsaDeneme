@@ -36,6 +36,7 @@ def grafik_tetikle(hisse_kodu, su_an_aktif_mi):
         st.session_state["grafik_aktif_hisse"] = hisse_kodu
 
 
+
 # ==============================================================================
 # 1. VERİTABANI SINIFI
 # ==============================================================================
