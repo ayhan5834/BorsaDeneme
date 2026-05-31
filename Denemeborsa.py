@@ -362,7 +362,20 @@ with aktif_sekme[0]:
                         st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
                         
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
-                        btn_alt1, btn_alt2 = st.columns([1,1])
+                        st.markdown("""
+                        <style>
+
+                        div[data-testid="column"] button[key^="detay_"]{
+                            height:40px !important;
+                            font-size:12px !important;
+                            border-radius:8px !important;
+                            white-space:nowrap !important;
+                        }
+
+                        </style>
+                        """, unsafe_allow_html=True)
+
+                        btn_alt1, btn_alt2 = st.columns([50,50], gap="small")
                         
                         with btn_alt1:
                             if st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True):
@@ -376,6 +389,8 @@ with aktif_sekme[0]:
                                 st.session_state["analiz_edilen_hisse"] = h
                                 st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
                                 st.rerun()
+                                
+                        
                                 
                         st.markdown("</div>", unsafe_allow_html=True)
                 
