@@ -139,22 +139,40 @@ st.markdown("""
     div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
     /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
-        div[data-testid="stHorizontalBlock"] div.stButton > button {
-            width: 16px !important;
-            height: 16px !important;
-            min-width: 16px !important;
-            min-height: 16px !important;
-            padding: 0px !important;
-            font-size: 9px !important; /* İçindeki + - simgesinin sığması için */
-            line-height: 16px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            border-radius: 4px !important;
-            margin-top: 10px !important; /* Küçük butonun dikeyde tam ortalanması için artırıldı */
-            background-color: #2D2D2D !important; /* Arka planı biraz yumuşatarak göz yormasını engelledik */
-            border: none !important;
-        }
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px !important;
+        min-height: 16px !important;
+        padding: 0px !important;
+        font-size: 9px !important;
+        line-height: 16px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 4px !important;
+        margin-top: 10px !important;
+        background-color: #2D2D2D !important;
+        border: none !important;
+    }
+
+    /* MOBİL ALT BUTONLARIN (SİL & TEKNİK ANALİZ) YAN YANA DÜZGÜN SIĞMASI İÇİN CSS AYARI */
+    div.stButton > button[key^="detay_sil_"] {
+        background-color: #E74C3C !important;
+        color: white !important;
+        font-size: 11.5px !important;
+        white-space: nowrap !important;
+        padding: 6px 4px !important;
+        font-weight: bold !important;
+    }
+    div.stButton > button[key^="detay_analiz_"] {
+        background-color: #FFFFFF !important;
+        color: #121212 !important;
+        font-size: 11.5px !important;
+        white-space: nowrap !important;
+        padding: 6px 4px !important;
+        font-weight: bold !important;
+    }
 
     div[data-testid="stPopover"] button {
         width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
