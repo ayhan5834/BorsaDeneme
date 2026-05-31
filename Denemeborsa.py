@@ -365,30 +365,35 @@ with aktif_sekme[0]:
                         st.markdown("""
                         <style>
 
-                        div[data-testid="column"] button[key^="detay_"]{
-                            height:40px !important;
-                            font-size:12px !important;
+                        div.stButton > button {
+                            height:42px !important;
                             border-radius:8px !important;
+                            font-size:12px !important;
                             white-space:nowrap !important;
                         }
 
                         </style>
                         """, unsafe_allow_html=True)
+                            
 
-                        btn_alt1, btn_alt2 = st.columns([50,50], gap="small")
-                        
+                        btn_alt1, btn_alt2 = st.columns([1,1], gap="small")
+
                         with btn_alt1:
-                            if st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True):
-                                db.hisse_sil(h)
-                                st.session_state["grafik_aktif_hisse"] = None
-                                st.toast(f"❌ {h} başarıyla silindi.")
-                                st.rerun()
-                                
+                            sil = st.button("🗑️ Sil",key=f"detay_sil_{h}", use_container_width=True)
+
                         with btn_alt2:
-                            if st.button("📈 Analiz", key=f"detay_analiz_{h}", use_container_width=True):
-                                st.session_state["analiz_edilen_hisse"] = h
-                                st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
-                                st.rerun()
+                            analiz = st.button( "📈 Analiz",key=f"detay_analiz_{h}", use_container_width=True)
+
+                        if sil:
+                            db.hisse_sil(h)
+                            st.session_state["grafik_aktif_hisse"] = None
+                            st.toast(f"❌ {h} başarıyla silindi.")
+                            st.rerun()
+
+                        if analiz:
+                            st.session_state["analiz_edilen_hisse"] = h
+                            st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
+                            st.rerun()
                                 
                         
                                 
