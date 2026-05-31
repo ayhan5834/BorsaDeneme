@@ -4,7 +4,6 @@ Created on Fri May 29 15:42:45 2026
 
 @author: EmirAysu
 """
-
 import os
 import logging
 import sqlite3
@@ -135,53 +134,44 @@ st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
     div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
-    div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
-    div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-    /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
-    div[data-testid="stHorizontalBlock"] div.stButton > button {
-        width: 16px !important;
-        height: 16px !important;
-        min-width: 16px !important;
-        min-height: 16px !important;
-        padding: 0px !important;
-        font-size: 9px !important;
-        line-height: 16px !important;
+    /* MOBİL BUTONLARI YAN YANA TUTMA ZORLAMASI */
+    [data-testid="column"] > div > div > div > div.stButton {
+        display: inline-block;
+        width: 100%;
+    }
+    
+    /* Sütunların mobil ekranlarda (dar ekran) alt alta binmesini engeller */
+    [data-testid="stHorizontalBlock"] {
         display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
         align-items: center !important;
-        justify-content: center !important;
-        border-radius: 4px !important;
-        margin-top: 10px !important;
+        gap: 0.5rem !important;
+    }
+
+    /* Portföydeki minik + / - butonları */
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        width: 22px !important;
+        height: 22px !important;
+        min-width: 22px !important;
+        padding: 0px !important;
+        font-size: 10px !important;
         background-color: #2D2D2D !important;
         border: none !important;
     }
 
-    /* MOBİL ALT BUTONLARIN (SİL & TEKNİK ANALİZ) YAN YANA DÜZGÜN SIĞMASI İÇİN CSS AYARI */
-    div.stButton > button[key^="detay_sil_"] {
-        background-color: #E74C3C !important;
-        color: white !important;
-        font-size: 11.5px !important;
+    /* Detay panelindeki SİL ve ANALİZ butonları */
+    button[key^="detay_sil_"], button[key^="detay_analiz_"] {
+        padding: 5px 2px !important;
+        font-size: 11px !important;
+        min-height: 35px !important;
         white-space: nowrap !important;
-        padding: 6px 4px !important;
-        font-weight: bold !important;
     }
-    div.stButton > button[key^="detay_analiz_"] {
-        background-color: #FFFFFF !important;
-        color: #121212 !important;
-        font-size: 11.5px !important;
-        white-space: nowrap !important;
-        padding: 6px 4px !important;
-        font-weight: bold !important;
-    }
+    
+    button[key^="detay_sil_"] { background-color: #E74C3C !important; }
+    button[key^="detay_analiz_"] { background-color: #007BFF !important; }
 
-    div[data-testid="stPopover"] button {
-        width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
-        border: 1px solid #444444 !important; color: #00F0FF !important;
-    }
-    div[data-testid="stPopoverBody"] button {
-        background: none !important; color: white !important; text-align: left !important; width: 100% !important;
-    }
-    div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
     </style>
 """, unsafe_allow_html=True)
 
