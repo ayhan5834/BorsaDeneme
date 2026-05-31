@@ -364,7 +364,7 @@ with aktif_sekme[0]:
 
                         st.divider()
 
-                        col_sil, col_analiz = st.columns([1, 1], gap="small")
+                        col_sil, col_analiz = st.columns([1,1])
 
                         with col_sil:
                             sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
