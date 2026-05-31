@@ -182,7 +182,7 @@ with sekme1:
 
     with st.expander("➕ Hisse Ekle / Düzenle"):
         with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
-            yeni_hisse = st.text_input("Kod (TUREX)").upper().strip()
+            yeni_hisse = st.text_input("Hisse Kodu", placeholder="Örn: THYAO").upper().strip()
             c1, c2 = st.columns(2)
             maliyet = c1.number_input("Maliyet", value=0.0, step=0.01)
             adet = c2.number_input("Adet", value=0, step=1)
