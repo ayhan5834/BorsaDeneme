@@ -362,7 +362,7 @@ with aktif_sekme[0]:
                         st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
                         
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
-                        btn_alt1, btn_alt2 = st.columns(2)
+                        btn_alt1, btn_alt2 = st.columns([1,1])
                         
                         with btn_alt1:
                             if st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True):
