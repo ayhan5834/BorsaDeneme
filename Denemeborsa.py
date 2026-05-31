@@ -139,26 +139,35 @@ st.markdown("""
     div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
     div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-   /* SİYAH ZEMİN, BEYAZ SİMGE MİNİ BUTON */
+   /* KUTUSUZ, EKRANLA BİRLEŞİK, SADECE BEYAZ SİMGE */
     div[data-testid="stHorizontalBlock"] div.stButton > button {
         width: 16px !important;
         height: 16px !important;
         min-width: 16px !important;
         min-height: 16px !important;
         padding: 0px !important;
-        font-size: 9px !important;
+        font-size: 11px !important; /* Simgenin net görünmesi için hafif büyütüldü */
         line-height: 16px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        border-radius: 4px !important;
         margin-top: 10px !important;
         
-        background-color: #000000 !important; /* Tam Siyah Zemin */
-        color: #FFFFFF !important;            /* Beyaz Artı/Eksi İşareti */
-        border: none !important;               /* Kenarlık Yok */
+        background-color: transparent !important; /* Arka planı tamamen şeffaf yaptık */
+        color: #FFFFFF !important;                /* Simgeler tam beyaz */
+        border: none !important;                   /* Çerçeve/Kutu yok */
+        box-shadow: none !important;               /* Gölge yok */
     }
     
+    /* Mobil dokunuşlarda veya odaklanıldığında kutunun geri gelmesini engelleme */
+    div[data-testid="stHorizontalBlock"] div.stButton > button:hover,
+    div[data-testid="stHorizontalBlock"] div.stButton > button:active,
+    div[data-testid="stHorizontalBlock"] div.stButton > button:focus {
+        background-color: transparent !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
     /* Butona basıldığında veya parmak basılı kaldığında (Hover/Focus) rengin bozulmaması için */
     div[data-testid="stHorizontalBlock"] div.stButton > button:hover,
     div[data-testid="stHorizontalBlock"] div.stButton > button:active,
