@@ -139,6 +139,22 @@ st.markdown("""
     div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
     div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
+    /* PORTFÖYDEKİ + / - BUTONLARINI KÜÇÜLTME VE KARE YAPMA */
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        padding: 0px !important;
+        line-height: 28px !important;
+        font-size: 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 6px !important;
+        margin-top: 4px !important; /* Dikey hizalama için */
+    }
+
     div[data-testid="stPopover"] button {
         width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
         border: 1px solid #444444 !important; color: #00F0FF !important;
