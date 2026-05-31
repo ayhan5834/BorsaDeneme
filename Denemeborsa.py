@@ -375,7 +375,7 @@ with aktif_sekme[0]:
                                 st.rerun()
                                 
                         with btn_alt2:
-                            if st.button("📈 Teknik Analizi Aç", key=f"detay_analiz_{h}", use_container_width=True):
+                            if st.button("📈", key=f"detay_analiz_{h}", use_container_width=True):
                                 st.session_state["analiz_edilen_hisse"] = h
                                 # Hisse Analiz sekmesine yönlendirme simülasyonu
                                 st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
