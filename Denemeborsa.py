@@ -139,22 +139,23 @@ st.markdown("""
     div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
     div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-    /* PORTFÖYDEKİ + / - BUTONLARINI KÜÇÜLTME VE KARE YAPMA */
+   /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
     div[data-testid="stHorizontalBlock"] div.stButton > button {
-        width: 28px !important;
-        height: 28px !important;
-        min-width: 28px !important;
-        min-height: 28px !important;
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px !important;
+        min-height: 16px !important;
         padding: 0px !important;
-        line-height: 28px !important;
-        font-size: 12px !important;
+        font-size: 9px !important; /* İçindeki + - simgesinin sığması için */
+        line-height: 16px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        border-radius: 6px !important;
-        margin-top: 4px !important; /* Dikey hizalama için */
+        border-radius: 4px !important;
+        margin-top: 10px !important; /* Küçük butonun dikeyde tam ortalanması için artırıldı */
+        background-color: #2D2D2D !important; /* Arka planı biraz yumuşatarak göz yormasını engelledik */
+        border: none !important;
     }
-
     div[data-testid="stPopover"] button {
         width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
         border: 1px solid #444444 !important; color: #00F0FF !important;
