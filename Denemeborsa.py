@@ -130,40 +130,32 @@ def mobil_tahmin_motoru(df):
         return tahmin[-1], tahmin
     except: return 0.0, np.zeros(5)
 
-# --- CSS PANEL ---
+# ==============================================================================
+# CSS PANELİ (DÜZELTİLDİ)
+# ==============================================================================
 st.markdown("""
     <style>
     .stApp { background-color: #121212; color: #FFFFFF; }
     div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
     div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
-    div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-    /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
-    div[data-testid="stHorizontalBlock"] div.stButton > button {
-        width: 16px !important;
-        height: 16px !important;
-        min-width: 16px !important;
-        min-height: 16px !important;
-        padding: 0px !important;
-        font-size: 9px !important;
-        line-height: 16px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 4px !important;
-        margin-top: 10px !important;
-        background-color: #2D2D2D !important;
-        border: none !important;
-    }
-
+    /* Popover menü ayarları */
     div[data-testid="stPopover"] button {
-        width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
-        border: 1px solid #444444 !important; color: #00F0FF !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #FFFFFF !important;
+        text-align: left !important;
+        padding: 10px 0px !important;
+        width: 100% !important;
+        border-radius: 0 !important;
+        font-size: 14px !important;
+        transition: none !important;
     }
-    div[data-testid="stPopoverBody"] button {
-        background: none !important; color: white !important; text-align: left !important; width: 100% !important;
+    div[data-testid="stPopover"] button:hover {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        color: #00F0FF !important;
     }
-    div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -188,28 +180,7 @@ def menü_tetikleyici(hisse_adi):
 # Sekmeler tanımlanıyor
 aktif_sekme = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
 
-st.markdown("""
-    <style>
-    div[data-testid="stPopover"] button {
-        background: none !important;
-        border: none !important;
-        box-shadow: none !important;
-        color: #FFFFFF !important;
-        text-align: left !important;
-        padding: 10px 0px !important;
-        width: 100% !important;
-        border-radius: 0 !important;
-        font-size: 14px !important;
-        transition: none !important;
-    }
-    div[data-testid="stPopover"] button:hover {
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        color: #00F0FF !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
+# --- 1. SEKME: PORTFÖY ---
 with aktif_sekme[0]:
     hisserler = db.listeyi_getir()
 
@@ -226,7 +197,6 @@ with aktif_sekme[0]:
     if not hisserler:
         st.warning("Takip listesi boş.")
     else:
-        # --- TAMAMEN SABİT BAŞLIKLAR ---
         st.markdown("""
             <div style="
                 background-color: #121212;
@@ -248,9 +218,6 @@ with aktif_sekme[0]:
             <hr style="margin:0 0 5px 0; border:0; border-top:1px solid #333;">
         """, unsafe_allow_html=True)
 
-        # --- KAYDIRILABİLİR ALAN BAŞLANGICI ---
-        st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
-
         for h, maliyet, adet in hisserler:
             sorgu = h if h.endswith(".IS") else h + ".IS"
             canli_fiyat = guvenli_fiyat_yakala(sorgu)
@@ -266,11 +233,13 @@ with aktif_sekme[0]:
                     degisim_yuzde = 0.0
 
                 renk = "#2ECC71" if kz_tl >= 0 else "#E74C3C"
-                col_veri, col_btn = st.columns([88, 12])
+                
+                # + butonu için sütun oranını 85'e 15 olarak genişlettik
+                col_veri, col_btn = st.columns([85, 15]) 
                 
                 with col_veri:
                     st.markdown(f"""
-                        <div style="display:flex; justify-content:space-between; align-items:center; height:35px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; height:40px;">
                             <div style="width:25%; text-align:left;">
                                 <div style="color:#00F0FF; font-weight:bold; font-size:14px;">{h}</div>
                                 <div style="color:#666; font-size:11px;">{adet} Ad.</div>
@@ -300,14 +269,13 @@ with aktif_sekme[0]:
                         on_click=grafik_tetikle,
                         args=(h, is_active))
 
-                # --- `+` BASINCA AÇILAN YAPİ KREDİ MOBİL DETAY PANELİ ---
+                # --- AÇILAN DETAY PANELİ ---
                 if st.session_state.get("grafik_aktif_hisse") == h:
                     df_gr = grafik_verisi_indir(sorgu)
                     if not df_gr.empty:
                         if isinstance(df_gr.columns, pd.MultiIndex): 
                             df_gr.columns = df_gr.columns.droplevel(1)
                         
-                        # Mobil Günlük Veriler Alınıyor
                         try:
                             gun_yuksek = float(df_gr['High'].squeeze().iloc[-1])
                             gun_dusuk = float(df_gr['Low'].squeeze().iloc[-1])
@@ -332,7 +300,6 @@ with aktif_sekme[0]:
                             kapanis = df_gr['Close'].squeeze()
                             hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df_gr)
                             
-                            # Şık Mini Grafik Çizimi
                             fig, ax = plt.subplots(figsize=(6, 2.5), facecolor='#1A1A1A')
                             ax.set_facecolor('#1E1E1E')
                             ax.plot(range(15), kapanis.tail(15).values, color='#00F0FF', linewidth=1.5, label="Gerçek")
@@ -344,9 +311,9 @@ with aktif_sekme[0]:
                             fig.tight_layout()
                             st.pyplot(fig)
                         
-                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
                         
-                        # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
+                        # BUTONLAR BURADA EŞİT YAN YANA (%50 - %50) DAĞILACAKTIR
                         btn_alt1, btn_alt2 = st.columns(2)
                         
                         with btn_alt1:
@@ -357,7 +324,8 @@ with aktif_sekme[0]:
                                 st.rerun()
                                 
                         with btn_alt2:
-                            if st.button("📈 Analiz", key=f"detay_analiz_{h}", use_container_width=True):
+                            # Farklı bir stil ile belirginleştirmek için type="primary" eklendi
+                            if st.button("📈 Analiz Et", key=f"detay_analiz_{h}", type="primary", use_container_width=True):
                                 st.session_state["analiz_edilen_hisse"] = h
                                 st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
                                 st.rerun()
@@ -368,10 +336,7 @@ with aktif_sekme[0]:
             else:
                 st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
 
-        st.markdown('</div>', unsafe_allow_html=True)
-        # --- KAYDIRILABİLİR ALAN BİTİŞİ ---
-
-    if st.button("🔄 Verileri Yenile", key="global_refresh_btn"):
+    if st.button("🔄 Verileri Yenile", key="global_refresh_btn", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -451,7 +416,7 @@ with aktif_sekme[2]:
     sadece_guclu = col1.checkbox("Sadece GÜÇLÜ AL Sinyalleri", value=True)
     hacim_filtresi = col2.checkbox("Hacim Onayı İstiyorum", value=False)
    
-    if st.button("🚀 TARAMAYI BAŞLAT", key="mob_radar_start"):
+    if st.button("🚀 TARAMAYI BAŞLAT", key="mob_radar_start", use_container_width=True):
         guncel_hisse_listesi = dinamik_bist_listesi_yukle()
         bulunanlar = []
         toplam = len(guncel_hisse_listesi)
