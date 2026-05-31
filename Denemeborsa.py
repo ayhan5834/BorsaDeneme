@@ -29,6 +29,14 @@ logging.getLogger('matplotlib').setLevel(logging.ERROR)
 # ==============================================================================
 st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
+# 1. Butona tıklandığında çalışacak mobil uyumlu fonksiyon
+def grafik_tetikle(hisse_kodu, su_an_aktif_mi):
+    if su_an_aktif_mi:
+        st.session_state["grafik_aktif_hisse"] = None
+    else:
+        st.session_state["grafik_aktif_hisse"] = hisse_kodu
+
+
 # ==============================================================================
 # 1. VERİTABANI SINIFI
 # ==============================================================================
@@ -216,17 +224,18 @@ with sekme1:
                     """, unsafe_allow_html=True)
 
                 with col_buton:
-                    # 1. Bu hissenin grafiği şu an açık mı kontrol et
+                    # Durumu kontrol et
                     is_active = st.session_state.get("grafik_aktif_hisse") == h
-                    
-                    # Grafik açıksa buton '-' olur, kapalıysa '+' olur
                     button_label = "➖" if is_active else "➕"
                     
-                    # 2. Doğrudan simgeye basınca çalışacak buton
-                    if st.button(button_label, key=f"action_graf_{h}", use_container_width=True):
-                        # Grafik açıksa kapat (None yap), kapalıysa bu hisseyi aktif et (h yap)
-                        st.session_state["grafik_aktif_hisse"] = None if is_active else h
-                        st.rerun()
+                    # Doğrudan on_click kullanarak mobil çökmelerini engelliyoruz
+                    st.button(
+                        button_label, 
+                        key=f"btn_graf_{h}", 
+                        use_container_width=True,
+                        on_click=grafik_tetikle,
+                        args=(h, is_active))
+
                        
 
                     
