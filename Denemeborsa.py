@@ -185,7 +185,8 @@ def menü_tetikleyici(hisse_adi):
         st.session_state["menü_aktif_hisse"] = hisse_adi 
         st.session_state["grafik_goster"] = False
 
-sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
+# Sekmeler tanımlanıyor
+aktif_sekme = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
 
 st.markdown("""
     <style>
@@ -209,7 +210,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
-with sekme1:
+with aktif_sekme[0]:
     hisserler = db.listeyi_getir()
 
     with st.expander("➕ Hisse Ekle / Düzenle"):
@@ -225,7 +226,7 @@ with sekme1:
     if not hisserler:
         st.warning("Takip listesi boş.")
     else:
-        # --- TAMAMEN SABİT BAŞLIKLAR (SAYFAYLA ASLA KAYMAZ) ---
+        # --- TAMAMEN SABİT BAŞLIKLAR ---
         st.markdown("""
             <div style="
                 background-color: #121212;
@@ -248,7 +249,6 @@ with sekme1:
         """, unsafe_allow_html=True)
 
         # --- KAYDIRILABİLİR ALAN BAŞLANGICI ---
-        # Bu div sayesinde listeniz telefonda ekranı yukarı taşımayacak, kendi içinde kayacak.
         st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
 
         for h, maliyet, adet in hisserler:
@@ -300,14 +300,68 @@ with sekme1:
                         on_click=grafik_tetikle,
                         args=(h, is_active))
 
+                # --- `+` BASINCA AÇILAN YAPİ KREDİ MOBİL DETAY PANELİ ---
                 if st.session_state.get("grafik_aktif_hisse") == h:
                     df_gr = grafik_verisi_indir(sorgu)
                     if not df_gr.empty:
                         if isinstance(df_gr.columns, pd.MultiIndex): 
                             df_gr.columns = df_gr.columns.droplevel(1)
-                        fig = go.Figure(data=[go.Candlestick(x=df_gr.index, open=df_gr['Open'], high=df_gr['High'], low=df_gr['Low'], close=df_gr['Close'])])
-                        fig.update_layout(template="plotly_dark", height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
-                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Mobil Günlük Veriler Alınıyor
+                        try:
+                            gun_yuksek = float(df_gr['High'].squeeze().iloc[-1])
+                            gun_dusuk = float(df_gr['Low'].squeeze().iloc[-1])
+                        except:
+                            gun_yuksek, gun_dusuk = canli_fiyat, canli_fiyat
+
+                        st.markdown("<div style='background-color: #1A1A1A; padding: 12px; border-radius: 8px; margin: 5px 0;'>", unsafe_allow_html=True)
+                        
+                        detay_col1, detay_col2 = st.columns([35, 65])
+                        
+                        with detay_col1:
+                            st.markdown(f"""
+                                <div style="font-size: 13px; line-height: 1.8; color: #BBBBBB; padding-top: 5px;">
+                                    <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #2D2D2D; padding-bottom:2px;"><span>Alış:</span><b style="color:white;">{canli_fiyat:.2f}</b></div>
+                                    <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #2D2D2D; padding-top:2px; padding-bottom:2px;"><span>Satış:</span><b style="color:white;">{canli_fiyat:.2f}</b></div>
+                                    <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #2D2D2D; padding-top:2px; padding-bottom:2px;"><span>Yüksek:</span><b style="color:#2ECC71;">{gun_yuksek:.2f}</b></div>
+                                    <div style="display:flex; justify-content:space-between; padding-top:2px;"><span>Düşük:</span><b style="color:#E74C3C;">{gun_dusuk:.2f}</b></div>
+                                </div>
+                            """, unsafe_allow_html=True)
+                            
+                        with detay_col2:
+                            kapanis = df_gr['Close'].squeeze()
+                            hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df_gr)
+                            
+                            # Şık Mini Grafik Çizimi
+                            fig, ax = plt.subplots(figsize=(6, 2.5), facecolor='#1A1A1A')
+                            ax.set_facecolor('#1E1E1E')
+                            ax.plot(range(15), kapanis.tail(15).values, color='#00F0FF', linewidth=1.5, label="Gerçek")
+                            ax.plot(range(14, 20), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), color='#FF00FF', linestyle='--', linewidth=1.5, label="Tahmin")
+                            ax.tick_params(colors='white', labelsize=7)
+                            ax.grid(True, color='#2D2D2D', linestyle='--')
+                            for spine in ax.spines.values():
+                                spine.set_visible(False)
+                            fig.tight_layout()
+                            st.pyplot(fig)
+                        
+                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                        btn_alt1, btn_alt2 = st.columns(2)
+                        
+                        with btn_alt1:
+                            if st.button("🗑️ Listemden Çıkar", key=f"detay_sil_{h}", use_container_width=True):
+                                db.hisse_sil(h)
+                                st.session_state["grafik_aktif_hisse"] = None
+                                st.toast(f"❌ {h} başarıyla silindi.")
+                                st.rerun()
+                                
+                        with btn_alt2:
+                            if st.button("📈 Teknik Analizi Aç", key=f"detay_analiz_{h}", use_container_width=True):
+                                st.session_state["analiz_edilen_hisse"] = h
+                                # Hisse Analiz sekmesine yönlendirme simülasyonu
+                                st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
+                                st.rerun()
+                                
+                        st.markdown("</div>", unsafe_allow_html=True)
                 
                 st.markdown('<hr style="margin:5px 0; border:0; border-top:1px solid #1A1A1A;">', unsafe_allow_html=True)
             else:
@@ -321,10 +375,10 @@ with sekme1:
         st.rerun()
 
 # --- 2. SEKME: HİSSE ANALİZ ---
-with sekme2:
+with aktif_sekme[1]:
     st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
-        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın (Örn: THYAO)").upper().strip()
+        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın (Örn: THYAO)", value=st.session_state["analiz_edilen_hisse"]).upper().strip()
         analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
         if analiz_tetiklendi and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
@@ -333,7 +387,7 @@ with sekme2:
     if hisse_kodu:
         sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
         try:
-            df = yf.download(sorgu_kodu, period="60d", interval="1d", progress=False)
+            df = yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
             if isinstance(df.columns, pd.MultiIndex): 
                 df.columns = df.columns.droplevel(1)
             
@@ -353,39 +407,42 @@ with sekme2:
                 elif son_rsi > 65 or (son_m < son_ms and son_rsi > 50): sinyal_metni, sinyal_rengi = "🔴 GÜÇLÜ SAT", "#E74C3C"
                 else: sinyal_metni, sinyal_rengi = "🟡 TUT / NÖTR", "#F1C40F"
                 
-                anlz_col1, anlz_col2 = st.columns([1, 2])
-                with anlz_col1:
-                    st.markdown(f"""
-                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 10px; border: 1px solid #2D2D2D;'>
-                        <h3 style='color: white;'>{hisse_kodu} Raporu</h3>
-                        <p>Fiyat: <b>{son_fiyat:,.2f} TL</b></p>
-                        <p>Hacim Onayı: <b>{'✅' if hacim_onay else '❌'}</b></p>
-                        <p>Sinyal: <b style='color: {sinyal_rengi};'>{sinyal_metni}</b></p>
-                        <h4 style='color: #00F0FF;'>🚀 YZ Hedef: {hedef_fiyat:.2f} (%{potansiyel:+.2f})</h4>
+                # Rapor Paneli
+                st.markdown(f"""
+                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 10px; border: 1px solid #2D2D2D; margin-bottom: 15px;'>
+                        <h3 style='color: white; margin:0 0 10px 0;'>{hisse_kodu} Raporu</h3>
+                        <span style='font-size:15px; color:white;'>Fiyat: <b>{son_fiyat:,.2f} TL</b> | Hacim Onayı: <b>{'✅' if hacim_onay else '❌'}</b> | Sinyal: <b style='color: {sinyal_rengi};'>{sinyal_metni}</b></span>
+                        <h4 style='color: #00F0FF; margin:10px 0 0 0;'>🚀 YZ Hedef: {hedef_fiyat:.2f} (%{potansiyel:+.2f})</h4>
                     </div>
-                    """, unsafe_allow_html=True)
-                with anlz_col2:
-                    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='#121212')
-                    ax.set_facecolor('#1E1E1E')
-                    ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
-                    ax.plot(range(29, 35), np.concatenate(([kapanis.iloc[-1]], tahmin_serisi)), color='#FF00FF', linestyle='--', label="Tahmin")
-                    ax.tick_params(colors='white')
-                    ax.grid(True, color='#2D2D2D')
-                    ax.legend()
-                    st.pyplot(fig)
+                """, unsafe_allow_html=True)
+                
+                # Tam Ekran Mumlu Grafik Tasarımı
+                fig = go.Figure(data=[go.Candlestick(
+                    x=df.index,
+                    open=df['Open'],
+                    high=df['High'],
+                    low=df['Low'],
+                    close=df['Close'],
+                    increasing_line_color='#2ECC71',
+                    decreasing_line_color='#E74C3C'
+                )])
+                
+                fig.update_layout(
+                    template="plotly_dark",
+                    height=450,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis_rangeslider_visible=True
+                )
+                st.plotly_chart(fig, use_container_width=True)
         except: 
             st.error("Veri çekilemedi.")
      
 # --- 3. SEKME: MEGA RADAR ---
-with sekme3:
+with aktif_sekme[2]:
     st.subheader("🔍 Radar Taraması")
-    # --- SMART CSS PANEL EKLEMESİ ---
     st.markdown("""
         <style>
-        /* Checkbox (Onay Kutusu) yazılarını beyaz yapar */
-        div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p {
-            color: #FFFFFF !important;
-        }
+        div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p { color: #FFFFFF !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -398,14 +455,11 @@ with sekme3:
         bulunanlar = []
         toplam = len(guncel_hisse_listesi)
         
-        # İlerleme elemanları
         ilerleme_bari = st.progress(0)
         durum_alani = st.empty()
-        sonuc_alani = st.empty()  # Canlı sonuçlar için boş alan
+        sonuc_alani = st.empty() 
         
         for idx, h in enumerate(guncel_hisse_listesi):
-            
-            # Taranıyor yazısı için:
             durum_alani.write(f"<span style='color:white;'>Taranıyor: {h} ({idx+1}/{toplam})</span>", unsafe_allow_html=True)
             ilerleme_bari.progress((idx + 1) / toplam)
             
@@ -419,27 +473,20 @@ with sekme3:
                 macd_c = ta.trend.MACD(kapanis).macd().iloc[-1]
                 macd_s = ta.trend.MACD(kapanis).macd_signal().iloc[-1]
                 
-                # Sinyal Kontrolleri
                 sinyal_var = (son_rsi < 42 and macd_c > macd_s) or (sadece_guclu == False and son_rsi < 30)
-                
-                # Hacim Kontrolü
                 hacim_ort = hacim.rolling(10).mean().iloc[-1]
                 hacim_onayli = hacim.iloc[-1] > (hacim_ort * 0.8)
                 
-                if sinyal_var:
-                    if not hacim_filtresi or hacim_onayli:
-                        bulunanlar.append(h)
-                        # Canlı Güncelleme: Her yeni bulunan hisseyi anında ve bir arada ekrana yazar
-                        with sonuc_alani.container():
-                            st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
-                            for hisse in bulunanlar:
-                                st.markdown(f"🔹 **{hisse}**")
+                if sinyal_var and (not hacim_filtresi or hacim_onayli):
+                    bulunanlar.append(h)
+                    with sonuc_alani.container():
+                        st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
+                        for hisse in bulunanlar:
+                            st.markdown(f"🔹 **{hisse}**")
             except: 
                 continue
         
-        # İşlem bittiğinde
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
-        
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
