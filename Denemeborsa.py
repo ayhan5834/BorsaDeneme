@@ -139,43 +139,24 @@ st.markdown("""
     div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
     div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-   /* KUTUSUZ, EKRANLA BİRLEŞİK, SADECE BEYAZ SİMGE */
-    div[data-testid="stHorizontalBlock"] div.stButton > button {
-        width: 16px !important;
-        height: 16px !important;
-        min-width: 16px !important;
-        min-height: 16px !important;
-        padding: 0px !important;
-        font-size: 11px !important; /* Simgenin net görünmesi için hafif büyütüldü */
-        line-height: 16px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        margin-top: 10px !important;
-        
-        background-color: transparent !important; /* Arka planı tamamen şeffaf yaptık */
-        color: #FFFFFF !important;                /* Simgeler tam beyaz */
-        border: none !important;                   /* Çerçeve/Kutu yok */
-        box-shadow: none !important;               /* Gölge yok */
-    }
-    
-    /* Mobil dokunuşlarda veya odaklanıldığında kutunun geri gelmesini engelleme */
-    div[data-testid="stHorizontalBlock"] div.stButton > button:hover,
-    div[data-testid="stHorizontalBlock"] div.stButton > button:active,
-    div[data-testid="stHorizontalBlock"] div.stButton > button:focus {
-        background-color: transparent !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        box-shadow: none !important;
-    }
-    /* Butona basıldığında veya parmak basılı kaldığında (Hover/Focus) rengin bozulmaması için */
-    div[data-testid="stHorizontalBlock"] div.stButton > button:hover,
-    div[data-testid="stHorizontalBlock"] div.stButton > button:active,
-    div[data-testid="stHorizontalBlock"] div.stButton > button:focus {
-        background-color: #000000 !important;
-        color: #FFFFFF !important;
-        border: none !important;
-    }
+    /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
+        div[data-testid="stHorizontalBlock"] div.stButton > button {
+            width: 16px !important;
+            height: 16px !important;
+            min-width: 16px !important;
+            min-height: 16px !important;
+            padding: 0px !important;
+            font-size: 9px !important; /* İçindeki + - simgesinin sığması için */
+            line-height: 16px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 4px !important;
+            margin-top: 10px !important; /* Küçük butonun dikeyde tam ortalanması için artırıldı */
+            background-color: #2D2D2D !important; /* Arka planı biraz yumuşatarak göz yormasını engelledik */
+            border: none !important;
+        }
+
     div[data-testid="stPopover"] button {
         width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
         border: 1px solid #444444 !important; color: #00F0FF !important;
@@ -343,34 +324,43 @@ with sekme2:
         except: 
             st.error("Veri çekilemedi.")
      
-# --- 3. SEKME: MEGA RADAR (Tamamlanan Bölüm) ---
+# --- 3. SEKME: MEGA RADAR ---
 with sekme3:
     st.subheader("🔍 Radar Taraması")
-    
+    # --- SMART CSS PANEL EKLEMESİ ---
+    st.markdown("""
+        <style>
+        /* Checkbox (Onay Kutusu) yazılarını beyaz yapar */
+        div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p {
+            color: #FFFFFF !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     col1, col2 = st.columns(2)
-    hacim_filtresi = col1.checkbox("Hacim Onayı İstiyorum", value=True)
-    sadece_guclu = col2.checkbox("Sadece GÜÇLÜ AL Sinyalleri", value=False)
-    
+    sadece_guclu = col1.checkbox("Sadece GÜÇLÜ AL Sinyalleri", value=True)
+    hacim_filtresi = col2.checkbox("Hacim Onayı İstiyorum", value=False)
+   
     if st.button("🚀 TARAMAYI BAŞLAT", key="mob_radar_start"):
         guncel_hisse_listesi = dinamik_bist_listesi_yukle()
         bulunanlar = []
         toplam = len(guncel_hisse_listesi)
         
-        # İlerleme elemanlarını hazırla
+        # İlerleme elemanları
         ilerleme_bari = st.progress(0)
         durum_alani = st.empty()
+        sonuc_alani = st.empty()  # Canlı sonuçlar için boş alan
         
         for idx, h in enumerate(guncel_hisse_listesi):
-            # Anlık sayaç ve bilgi güncelleme
-            durum_alani.text(f"Taranıyor: {h} ({idx+1}/{toplam})")
+            
+            # Taranıyor yazısı için:
+            durum_alani.write(f"<span style='color:white;'>Taranıyor: {h} ({idx+1}/{toplam})</span>", unsafe_allow_html=True)
             ilerleme_bari.progress((idx + 1) / toplam)
             
             try:
                 df = yf.download(h + ".IS", period="40d", interval="1d", progress=False)
-                if df is None or len(df) < 20: 
-                    continue
-                if isinstance(df.columns, pd.MultiIndex): 
-                    df.columns = df.columns.droplevel(1)
+                if df is None or len(df) < 20: continue
+                if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
                 
                 kapanis, hacim = df['Close'].squeeze(), df['Volume'].squeeze()
                 son_rsi = ta.momentum.rsi(kapanis, window=14).iloc[-1]
@@ -387,16 +377,17 @@ with sekme3:
                 if sinyal_var:
                     if not hacim_filtresi or hacim_onayli:
                         bulunanlar.append(h)
+                        # Canlı Güncelleme: Her yeni bulunan hisseyi anında ve bir arada ekrana yazar
+                        with sonuc_alani.container():
+                            st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
+                            for hisse in bulunanlar:
+                                st.markdown(f"🔹 **{hisse}**")
             except: 
                 continue
         
-        # İşlem bittiğinde temizle
+        # İşlem bittiğinde
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
         
-        if bulunanlar:
-            st.success(f"✅ {len(bulunanlar)} adet hisse kriterlerinize uygun:")
-            for hisse in bulunanlar: 
-                st.markdown(f"🔹 **{hisse}**")
-        else:
-            st.warning("Seçili kriterlere uygun hisse bulunamadı.")
+        if not bulunanlar:
+            st.warning("Seçili kriterlerde hisse bulunamadı.")
