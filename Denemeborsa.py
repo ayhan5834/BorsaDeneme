@@ -363,8 +363,11 @@ with aktif_sekme[0]:
                         </style>
                         """, unsafe_allow_html=True)
 
-                       col_sil, col_analiz = st.columns(2)
-            
+                        
+
+                        col_sil, col_analiz = st.columns(2)
+                      
+
                         with col_sil:
                             sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
 
