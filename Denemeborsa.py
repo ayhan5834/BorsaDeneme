@@ -353,22 +353,19 @@ with aktif_sekme[0]:
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
                         st.markdown("""
                         <style>
-                        [data-testid="stHorizontalBlock"] {
-                            display:flex !important;
-                            flex-wrap:nowrap !important;
-                            gap:10px !important;
-                        }
-
-                        [data-testid="column"] {
-                            flex:1 1 0 !important;
-                            min-width:0 !important;
+                        div.stButton > button {
+                            height:42px !important;
+                            border-radius:8px !important;
+                            font-size:12px !important;
+                            white-space:nowrap !important;
                         }
                         </style>
                         """, unsafe_allow_html=True)
+
                         st.divider()
 
-                        col_sil, col_analiz = st.columns(2)
-                    
+                        col_sil, bosluk, col_analiz = st.columns([45,10,45])
+                      
 
                         with col_sil:
                             sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
