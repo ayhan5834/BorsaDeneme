@@ -345,9 +345,10 @@ with aktif_sekme[0]:
                             for spine in ax.spines.values():
                                 spine.set_visible(False)
                             fig.tight_layout()
-                            st.pyplot(fig)
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
                         
-                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                        
                       
                         
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
@@ -362,7 +363,7 @@ with aktif_sekme[0]:
                         </style>
                         """, unsafe_allow_html=True)
 
-                        st.divider()
+                        
 
                         col_sil, bosluk, col_analiz = st.columns([45,10,45])
                       
