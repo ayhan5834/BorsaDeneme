@@ -347,31 +347,32 @@ with aktif_sekme[0]:
                             fig.tight_layout()
                             st.pyplot(fig, use_container_width=True)
                             plt.close(fig)
-                        
-                        
                       
                         
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
                         st.markdown("""
                         <style>
-                        div.stButton > button {
-                            height:42px !important;
-                            border-radius:8px !important;
-                            font-size:12px !important;
-                            white-space:nowrap !important;
+                        div[data-testid="column"] {
+                            flex: 1 1 50% !important;
+                            min-width: 0 !important;
+                            max-width: 50% !important;
+                        }
+
+                        div[data-testid="stHorizontalBlock"] {
+                            flex-wrap: nowrap !important;
                         }
                         </style>
                         """, unsafe_allow_html=True)
 
-                        
-
-                        col1, col2 = st.columns([1, 1])
+                        col1, col2 = st.columns(2)
                         with col1:
-                            st.write("SOL")
+                            sil = st.button("🗑️ Sil", use_container_width=True)
 
                         with col2:
-                            st.write("SAĞ")
- 
+                            analiz = st.button("📈 Analiz", use_container_width=True)
+
+
+
                         if sil:
                             db.hisse_sil(h)
                             st.session_state["grafik_aktif_hisse"] = None
