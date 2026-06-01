@@ -319,7 +319,7 @@ with aktif_sekme[0]:
 
                         st.markdown("<div style='background-color: #1A1A1A; padding: 12px; border-radius: 8px; margin: 5px 0;'>", unsafe_allow_html=True)
                         
-                        detay_col1, detay_col2 = st.columns([28, 72])
+                        detay_col1, detay_col2 = st.columns([35, 65])
                         
                         with detay_col1:
                             st.markdown(f"""
@@ -353,18 +353,22 @@ with aktif_sekme[0]:
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
                         st.markdown("""
                         <style>
-                        div.stButton > button {
-                            height:42px !important;
-                            border-radius:8px !important;
-                            font-size:12px !important;
-                            white-space:nowrap !important;
+                        [data-testid="stHorizontalBlock"] {
+                            display:flex !important;
+                            flex-wrap:nowrap !important;
+                            gap:10px !important;
+                        }
+
+                        [data-testid="column"] {
+                            flex:1 1 0 !important;
+                            min-width:0 !important;
                         }
                         </style>
                         """, unsafe_allow_html=True)
-
                         st.divider()
 
-                        col_sil, bosluk, col_analiz = st.columns([45,10,45])
+                        col_sil, col_analiz = st.columns(2)
+                    
 
                         with col_sil:
                             sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
@@ -392,6 +396,8 @@ with aktif_sekme[0]:
                 st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
 
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        
         # --- KAYDIRILABİLİR ALAN BİTİŞİ ---
 
     if st.button("🔄 Verileri Yenile", key="global_refresh_btn"):
