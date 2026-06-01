@@ -354,9 +354,11 @@ with aktif_sekme[0]:
                         # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
                         st.markdown("""
                         <style>
-                        div[data-testid="column"] {
-                            min-width: 0 !important;
-                            flex: 1 1 0px !important;
+                        div.stButton > button {
+                            height:42px !important;
+                            border-radius:8px !important;
+                            font-size:12px !important;
+                            white-space:nowrap !important;
                         }
                         </style>
                         """, unsafe_allow_html=True)
