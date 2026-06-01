@@ -365,15 +365,13 @@ with aktif_sekme[0]:
 
                         
 
-                        col_sil, col_analiz = st.columns(2)
-                      
+                        col1, col2 = st.columns([1, 1])
+                        with col1:
+                            st.write("SOL")
 
-                        with col_sil:
-                            sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
-
-                        with col_analiz:
-                            analiz = st.button( "📈 Analiz", key=f"detay_analiz_{h}", use_container_width=True )
-
+                        with col2:
+                            st.write("SAĞ")
+ 
                         if sil:
                             db.hisse_sil(h)
                             st.session_state["grafik_aktif_hisse"] = None
