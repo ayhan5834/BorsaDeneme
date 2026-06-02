@@ -372,54 +372,7 @@ def mobil_tahmin_motoru(df):
         son = float(df["Close"].iloc[-1]) if df is not None and not df.empty else 0.0
         return {"son_tahmin": son, "seri": np.full(5, son), "alt": np.full(5, son), "ust": np.full(5, son), "hata_payi": 0.0}
 
-# ==============================================================================
-# PYQT5 MASAÜSTÜ PENCERE SINIFI
-# ==============================================================================
-class BorsaMobilUygulama(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Borsa Kontrol Paneli")
-        self.setGeometry(200, 200, 450, 220)
-        self.setStyleSheet("background-color: #121212; color: white;")
-        
-        merkezi_widget = QWidget()
-        layout = QVBoxLayout()
-        
-        self.baslik = QLabel("🖥️ Borsa Hibrit Motoru Aktif")
-        self.baslik.setAlignment(Qt.AlignCenter)
-        self.baslik.setStyleSheet("font-size: 18px; font-weight: bold; color: #00F0FF; margin-top: 10px;")
-        
-        self.acıklama = QLabel("Uygulama arka planda hazır.\nGelişmiş grafik ve analiz paneline erişmek için\naşağıdaki butona tıklayarak tarayıcı modunu başlatın.")
-        self.acıklama.setAlignment(Qt.AlignCenter)
-        self.acıklama.setStyleSheet("font-size: 12px; color: #aaaaaa; margin: 15px 0;")
-        
-        self.buton = QPushButton("🌐 Gelişmiş Web Panelini Başlat")
-        self.buton.setStyleSheet("""
-            QPushButton {
-                background-color: #007BFF; 
-                color: white; 
-                padding: 12px; 
-                font-weight: bold; 
-                border-radius: 6px;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #0056b3;
-            }
-        """)
-        self.buton.clicked.connect(self.streamlit_panel_ac)
-        
-        layout.addWidget(self.baslik)
-        layout.addWidget(self.acıklama)
-        layout.addWidget(self.buton)
-        merkezi_widget.setLayout(layout)
-        self.setCentralWidget(merkezi_widget)
-        
-    def streamlit_panel_ac(self):
-        self.baslik.setText("🚀 Panel Başlatılıyor...")
-        self.buton.setEnabled(False)
-        subprocess.Popen(["streamlit", "run", sys.argv[0]])
-        self.close()
+
 
 # ==============================================================================
 # 4. STREAMLIT MASAÜSTÜ UYGULAMA PANELİ
