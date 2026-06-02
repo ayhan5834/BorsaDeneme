@@ -41,25 +41,23 @@ import socket
 import matplotlib.pyplot as plt
 import yfinance as yf
 import ta
+# Matplotlib ayarları
+matplotlib.use('Agg') 
+logging.getLogger('matplotlib').setLevel(logging.ERROR)
 
+# ==============================================================================
+# STREAMLIT SAYFA AYARLARI
+# ==============================================================================
+st.set_page_config(page_title="Mobil Borsa", layout="wide", initial_sidebar_state="collapsed")
 
-# PYQT5 GÖRSEL BİLEŞENLERİ
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton
-from PyQt5.QtCore import Qt
-
-# --- DİNAMİK MOD TESPİTİ (Streamlit mi, PyQt5 mi?) ---
-try:
-    from streamlit.runtime import exists
-    IS_STREAMLIT = exists()
-except ImportError:
-    IS_STREAMLIT = False
-    
-# Butona tıklandığında çalışacak mobil uyumlu fonksiyon
+# 1. Butona tıklandığında çalışacak mobil uyumlu fonksiyon
 def grafik_tetikle(hisse_kodu, su_an_aktif_mi):
     if su_an_aktif_mi:
         st.session_state["grafik_aktif_hisse"] = None
     else:
         st.session_state["grafik_aktif_hisse"] = hisse_kodu
+
+
 
 # ==============================================================================
 # 1. VERİTABANI SINIFI
@@ -1165,12 +1163,5 @@ if IS_STREAMLIT:
                     )
             
             
-# ==============================================================================
-# ÇALIŞTIRMA
-# ==============================================================================
-if __name__ == "__main__":
-    if not IS_STREAMLIT:
-        app = QApplication(sys.argv)
-        pencere = BorsaMobilUygulama()
-        pencere.show()
+
         sys.exit(app.exec_())
