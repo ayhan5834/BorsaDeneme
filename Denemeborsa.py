@@ -377,76 +377,42 @@ def mobil_tahmin_motoru(df):
 # ==============================================================================
 # 4. STREAMLIT MASAÜSTÜ UYGULAMA PANELİ
 # ==============================================================================
-if IS_STREAMLIT:    
-    st.set_page_config(page_title="Masaüstü Borsa", layout="wide")
+# --- CSS PANEL ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #121212; color: #FFFFFF; }
+    div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
+    div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
+    div.stButton > button { background-color: #007BFF !important; color: white !important; }
     
-    # --- CSS PANEL ---
-    st.markdown("""
-        <style>
-        .stApp { background-color: #121212; color: #FFFFFF; }
-        div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
-        div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
-        
-        /* Yenile ve Sil Butonlarının Ortak Mobil Uyumlu CSS Tasarımı */
-        div.stButton > button { 
-            background-color: #007BFF !important; 
-            color: white !important;
-            font-size: 12.5px !important; /* Mobil ekranda harflerin kırılmaması için font ideal boyuta getirildi */
-            white-space: nowrap !important; /* Yazının kesinlikle aşağı satıra taşmasını engeller */
-            padding: 8px 10px !important;
-            font-weight: bold !important;
-        }
-        
-        [data-testid="stMainBlockContainer"] {
-            padding-top: 2rem !important;
-        }
-        
-        /* PORTFÖYDEKİ KATMANLARIN VE KAPSAYICININ YÜKSEKLİĞİNİ SABİTLEME */
-        .scrollable-container {
-            max-height: 380px !important;
-            overflow-y: auto !important;
-            padding-right: 5px;
-        }
-        
-        /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
-        div[data-testid="stHorizontalBlock"] div.stButton > button {
-            width: 16px !important;
-            height: 16px !important;
-            min-width: 16px !important;
-            min-height: 16px !important;
-            padding: 0px !important;
-            font-size: 9px !important;
-            line-height: 16px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            border-radius: 4px !important;
-            margin-top: 10px !important;
-            background-color: #2D2D2D !important;
-            border: none !important;
-        }
+    /* PORTFÖYDEKİ + / - BUTONLARINI MİNİCİK YAPMA (YARI BOYUT) */
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px !important;
+        min-height: 16px !important;
+        padding: 0px !important;
+        font-size: 9px !important;
+        line-height: 16px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 4px !important;
+        margin-top: 10px !important;
+        background-color: #2D2D2D !important;
+        border: none !important;
+    }
 
-        /* Checkbox hizalamasını düzenleme */
-        div[data-testid="stCheckbox"] {
-            margin-top: 8px !important;
-        }
-
-        /* Silme butonu için özel kırmızı stil */
-        div.stButton > button[key^="global_delete_btn"] {
-            background-color: #E74C3C !important;
-            color: white !important;
-        }
-
-        div[data-testid="stPopover"] button {
-            width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
-            border: 1px solid #444444 !important; color: #00F0FF !important;
-        }
-        div[data-testid="stPopoverBody"] button {
-            background: none !important; color: white !important; text-align: left !important; width: 100% !important;
-        }
-        div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
-        </style>
-    """, unsafe_allow_html=True)
+    div[data-testid="stPopover"] button {
+        width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
+        border: 1px solid #444444 !important; color: #00F0FF !important;
+    }
+    div[data-testid="stPopoverBody"] button {
+        background: none !important; color: white !important; text-align: left !important; width: 100% !important;
+    }
+    div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
+    </style>
+""", unsafe_allow_html=True)
 
     st.title("🖥️ Borsa")
     #Küçük bir zaman damgası ekleyerek kullanıcının sayfanın en son ne zaman yenilendiğini görmesini sağlıyoruz
