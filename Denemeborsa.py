@@ -12,11 +12,15 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import ta
-from sklearn.linear_model import HuberRegressor
-import plotly.graph_objects as go
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib
+
+from datetime import datetime
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.impute import SimpleImputer
+
+
 
 # Matplotlib ayarları
 matplotlib.use('Agg') 
@@ -80,55 +84,146 @@ class Veritabani:
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def dinamik_bist_listesi_yukle():
+    varsayilan_liste = ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
     csv_yolu = "bist_hisseler.csv"
-    if os.path.exists(csv_yolu):
-        df = pd.read_csv(csv_yolu)
-        return df["kod"].tolist()
-    
-    return ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
 
-@st.cache_data(ttl=60)  
-def guvenli_fiyat_yakala(sorgu_kodu):
-    """Borsa açıkken 5dk'lık canlı veri, kapalıyken en son günlük kapanış fiyatını döndürür."""
+    # Dosya yoksa doğrudan varsayılanı dön
+    if not os.path.exists(csv_yolu):
+        return varsayilan_liste
     try:
-        df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False)
-        if isinstance(df.columns, pd.MultiIndex): 
-            df.columns = df.columns.droplevel(1)
-            
-        if df is not None and not df.empty:
-            return float(df["Close"].squeeze().iloc[-1])
-    except:
-        pass
+        df = pd.read_csv(csv_yolu)
+        if df.empty or len(df.columns) == 0:
+            return varsayilan_liste
+        # 'kod' sütunu yoksa, belki ilk sütunu otomatik seçmek istersiniz
+        sutun_adi = "kod" if "kod" in df.columns else df.columns[0]
         
+        hisseler = (
+            df[sutun_adi]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .unique()
+            .tolist() )
+
+        return hisseler if hisseler else varsayilan_liste
+
+    except Exception as e:
+        # Hata durumunu konsolda görmek geliştirme aşamasında çok işinize yarar
+        st.error(f"Hisse listesi yüklenirken hata oluştu: {e}")
+        return varsayilan_liste
+
+# --- HIZLANDIRICI ÖNBELLEK FONKSİYONLARI ---
+# --- Güncel Veri İndirme ---
+@st.cache_data(ttl=60)
+def guncel_fiyat_indir(sorgu_kodu):
     try:
-        df_yedek = yf.download(sorgu_kodu, period="5d", interval="1d", progress=False)
-        if isinstance(df_yedek.columns, pd.MultiIndex): 
-            df_yedek.columns = df_yedek.columns.droplevel(1)
-            
-        if df_yedek is not None and not df_yedek.empty:
-            return float(df_yedek["Close"].squeeze().iloc[-1])
-    except:
-        pass
-        
-    return None
+        df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False, auto_adjust=True)
+        if df.empty: return pd.DataFrame()
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        return df
+    except Exception: return pd.DataFrame()
 
 @st.cache_data(ttl=300) 
 def grafik_verisi_indir(sorgu_kodu):
     return yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
 
+# --- 1. GÜVENLİ VERİ ÇEKME MOTORU ---
+@st.cache_data(ttl=60)
+def guvenli_fiyat_yakala(sorgu_kodu):
+    try:
+        df = yf.download(sorgu_kodu, period="5d", interval="1d", progress=False, auto_adjust=True)
+        if df is None or df.empty: return None
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        if "Close" not in df.columns: return None
+        close_seri = df["Close"].dropna()
+        return float(close_seri.iloc[-1]) if not close_seri.empty else None
+    except Exception: return None
 # ==============================================================================
-# 3. YAPAY ZEKA TAHMİNİ
+# 3. YAPAY ZEKA TAHMİN MOTORU
 # ==============================================================================
 def mobil_tahmin_motoru(df):
-    if df is None or df.empty or len(df) < 5: return 0.0, np.zeros(5)
+
     try:
-        data = df.tail(60).copy()
-        data['gun'] = range(len(data))
-        model = HuberRegressor(max_iter=1000).fit(data[['gun']], data['Close'].squeeze())
-        gelecek = pd.DataFrame({'gun': range(len(data), len(data) + 5)})
-        tahmin = model.predict(gelecek)
-        return tahmin[-1], tahmin
-    except: return 0.0, np.zeros(5)
+        # Veri kontrolü
+        if df is None or df.empty or len(df) < 250:
+            son = float(df["Close"].iloc[-1]) if df is not None and not df.empty else 0.0
+            return {"son_tahmin": son, "seri": np.full(5, son), "alt": np.full(5, son), "ust": np.full(5, son), "hata_payi": 0.0}
+
+        data = df.copy().tail(300)
+
+        # Teknik göstergeler
+        data["RSI"] = ta.momentum.RSIIndicator(close=data["Close"], window=14).rsi()
+        data["MACD"] = ta.trend.MACD(close=data["Close"]).macd()
+        data["EMA20"] = ta.trend.EMAIndicator(close=data["Close"], window=20).ema_indicator()
+        data["EMA50"] = ta.trend.EMAIndicator(close=data["Close"], window=50).ema_indicator()
+        data["EMA200"] = ta.trend.EMAIndicator(close=data["Close"], window=200).ema_indicator()
+        data["ATR"] = ta.volatility.AverageTrueRange(high=data["High"], low=data["Low"], close=data["Close"]).average_true_range()
+        
+        bb = ta.volatility.BollingerBands(close=data["Close"], window=20, window_dev=2)
+        data["BB_High"] = bb.bollinger_hband()
+        data["BB_Low"] = bb.bollinger_lband()
+        data["ADX"] = ta.trend.ADXIndicator(high=data["High"], low=data["Low"], close=data["Close"]).adx()
+
+        # Lag ve Getiriler
+        data["Close_1"] = data["Close"].shift(1)
+        data["Close_2"] = data["Close"].shift(2)
+        data["Close_3"] = data["Close"].shift(3)
+        data["Close_5"] = data["Close"].shift(5)
+        data["Return_1"] = data["Close"].pct_change(1)
+        data["Return_5"] = data["Close"].pct_change(5)
+        data["Return_20"] = data["Close"].pct_change(20)
+
+        data["Target"] = data["Close"].shift(-1)
+        data.dropna(inplace=True)
+
+        ozellikler = ["Close", "Volume", "RSI", "MACD", "EMA20", "EMA50", "EMA200", "ATR", 
+                      "BB_High", "BB_Low", "ADX", "Close_1", "Close_2", "Close_3", "Close_5", 
+                      "Return_1", "Return_5", "Return_20"]
+
+        X = data[ozellikler]
+        y = data["Target"]
+
+        imp = SimpleImputer(strategy="median")
+        X_fit = imp.fit_transform(X)
+
+        model = RandomForestRegressor(n_estimators=300, max_depth=8, min_samples_leaf=3, random_state=42, n_jobs=-1)
+        model.fit(X_fit, y)
+
+        # Eğitim hatası hesapla
+        train_pred = model.predict(X_fit)
+        model_hatasi = np.std(y - train_pred)
+
+        # Recursive Tahmin Döngüsü
+        son_veri = data.iloc[-1]
+        input_data = np.array([[son_veri[col] for col in ozellikler]])
+        current_X = imp.transform(input_data)
+        
+        tahminler = []
+        for _ in range(5):
+            yeni_tahmin = model.predict(current_X)[0]
+            tahminler.append(yeni_tahmin)
+            # Bir sonraki gün için 'Close' değerini güncelle
+            current_X[0, 0] = yeni_tahmin 
+        
+        seri = np.array(tahminler)
+
+        # Hata payı ve Aralıklar
+        volatilite = data["Close"].pct_change().rolling(20).std().iloc[-1]
+        volatilite_hatasi = son_veri["Close"] * volatilite
+        toplam_hata = (model_hatasi + volatilite_hatasi) / 2
+
+        return {
+            "son_tahmin": float(seri[-1]),
+            "seri": seri,
+            "alt": seri - (toplam_hata * 2),
+            "ust": seri + (toplam_hata * 2),
+            "hata_payi": float(toplam_hata)
+        }
+
+    except Exception:
+        son = float(df["Close"].iloc[-1]) if df is not None and not df.empty else 0.0
+        return {"son_tahmin": son, "seri": np.full(5, son), "alt": np.full(5, son), "ust": np.full(5, son), "hata_payi": 0.0}
 
 # --- CSS PANEL ---
 st.markdown("""
@@ -171,6 +266,9 @@ st.markdown("""
 
 
 st.title("🖥️ Borsa")
+#Küçük bir zaman damgası ekleyerek kullanıcının sayfanın en son ne zaman yenilendiğini görmesini sağlıyoruz
+st.caption(f"⏱️ Canlı takip tablosu 60 saniyede bir otomatik güncellenir. Son Yenilenme: {pd.Timestamp.now().strftime('%H:%M:%S')}")
+
 db = Veritabani()
 
 if "menü_aktif_hisse" not in st.session_state:
@@ -188,8 +286,7 @@ def menü_tetikleyici(hisse_adi):
         st.session_state["menü_aktif_hisse"] = hisse_adi 
         st.session_state["grafik_goster"] = False
 
-# Sekmeler tanımlanıyor
-aktif_sekme = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
+sekme1, sekme2, sekme3 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR"])
 
 st.markdown("""
     <style>
@@ -213,7 +310,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
-with aktif_sekme[0]:
+with sekme1:
+    
     hisserler = db.listeyi_getir()
 
     with st.expander("➕ Hisse Ekle / Düzenle"):
@@ -250,6 +348,16 @@ with aktif_sekme[0]:
             </div>
             <hr style="margin:0 0 5px 0; border:0; border-top:1px solid #333;">
         """, unsafe_allow_html=True)
+        
+        st.markdown("""
+            <style>
+            .scrollable-container {
+                max-height: 400px; /* Listenin kaplayacağı maksimum yükseklik */
+                overflow-y: auto;  /* Veri sığmazsa kaydırma çubuğu çıkar */
+                padding-right: 5px;
+            }
+            </style>
+        """, unsafe_allow_html=True)
 
         # --- KAYDIRILABİLİR ALAN BAŞLANGICI ---
         st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
@@ -271,25 +379,38 @@ with aktif_sekme[0]:
                 renk = "#2ECC71" if kz_tl >= 0 else "#E74C3C"
                 col_veri, col_btn = st.columns([88, 12])
                 
+                
+                # Saat bilgisini al
+                su_an = datetime.now().strftime("%H:%M")
+                
                 with col_veri:
+                    
+
                     st.markdown(f"""
-                        <div style="display:flex; justify-content:space-between; align-items:center; height:35px;">
-                            <div style="width:25%; text-align:left;">
+                    <table style="width:100%; border:none; border-collapse: collapse; font-family: sans-serif;">
+                        <tr>
+                            <td style="width:25%; text-align:left; vertical-align:top; padding:0;">
                                 <div style="color:#00F0FF; font-weight:bold; font-size:14px;">{h}</div>
                                 <div style="color:#666; font-size:11px;">{adet} Ad.</div>
-                            </div>
-                            <div style="width:25%; text-align:center;">
+                            </td>
+                            <td style="width:25%; text-align:center; vertical-align:top; padding:0;">
                                 <div style="color:white; font-size:14px;">{canli_fiyat:.2f}</div>
                                 <div style="color:#666; font-size:11px;">M:{maliyet:.2f}</div>
-                            </div>
-                            <div style="width:25%; text-align:center;">
+                            </td>
+                            <td style="width:25%; text-align:center; vertical-align:top; padding:0;">
                                 <div style="color:{renk}; font-size:13px; font-weight:500;">{kz_tl:+,.2f}</div>
-                                <div style="color:#888; font-size:11px;">({toplam_maliyet:,.2f} TL)</div>
-                            </div>
-                            <div style="width:25%; text-align:right; color:{renk}; font-weight:bold; font-size:13px;">
-                                %{degisim_yuzde:+.2f}
-                            </div>
-                        </div>
+                                <div style="color:#888; font-size:11px;">({toplam_maliyet:,.2f})</div>
+                            </td>
+                            <td style="width:25%; text-align:right; vertical-align:top; padding:0;">
+                                <div style="color:{renk}; font-weight:bold; font-size:13px;">%{degisim_yuzde:+.2f}</div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="4" style="text-align:right; font-size:10px; color:#444; padding-top:5px; padding-bottom:10px;">
+                                {su_an}
+                            </td>
+                        </tr>
+                    </table>
                     """, unsafe_allow_html=True)
 
                 with col_btn:
@@ -312,6 +433,7 @@ with aktif_sekme[0]:
                         
                         # Mobil Günlük Veriler Alınıyor
                         try:
+                            
                             gun_yuksek = float(df_gr['High'].squeeze().iloc[-1])
                             gun_dusuk = float(df_gr['Low'].squeeze().iloc[-1])
                         except:
@@ -319,7 +441,7 @@ with aktif_sekme[0]:
 
                         st.markdown("<div style='background-color: #1A1A1A; padding: 12px; border-radius: 8px; margin: 5px 0;'>", unsafe_allow_html=True)
                         
-                        detay_col1, detay_col2 = st.columns([35, 65])
+                        detay_col1, detay_col2 = st.columns([40, 60])
                         
                         with detay_col1:
                             st.markdown(f"""
@@ -332,8 +454,17 @@ with aktif_sekme[0]:
                             """, unsafe_allow_html=True)
                             
                         with detay_col2:
+                            
                             kapanis = df_gr['Close'].squeeze()
-                            hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df_gr)
+                            # Bununla DEĞİŞTİRİN
+                            tahmin_sonuc = mobil_tahmin_motoru(df_gr)
+
+                            # Sözlük içindeki değerleri değişkenlere atayalım
+                            hedef_fiyat = tahmin_sonuc["son_tahmin"]
+                            tahmin_serisi = tahmin_sonuc["seri"]
+                            alt_sinir = tahmin_sonuc["alt"]
+                            ust_sinir = tahmin_sonuc["ust"]
+
                             
                             # Şık Mini Grafik Çizimi
                             fig, ax = plt.subplots(figsize=(6, 2.5), facecolor='#1A1A1A')
@@ -345,47 +476,25 @@ with aktif_sekme[0]:
                             for spine in ax.spines.values():
                                 spine.set_visible(False)
                             fig.tight_layout()
-                            st.pyplot(fig, use_container_width=True)
-                            plt.close(fig)
+                            st.pyplot(fig)
                         
+                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
                         
-                      
+                        # Butonlar için mobil uyumlu ve esnek yan yana yerleşim düzeni
+                        btn_alt1, btn_alt2 = st.columns([45, 55])
                         
-                        # --- YAN YANA BUTONLAR (Kısaltılmış ve Düzeltilmiş) ---
-                        st.markdown("""
-                        <style>
-                        div.stButton > button {
-                            height:42px !important;
-                            border-radius:8px !important;
-                            font-size:12px !important;
-                            white-space:nowrap !important;
-                        }
-                        </style>
-                        """, unsafe_allow_html=True)
-
-                        
-
-                        col_sil, col_analiz = st.columns(2)
-                      
-
-                        with col_sil:
-                            sil = st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True )
-
-                        with col_analiz:
-                            analiz = st.button( "📈 Analiz", key=f"detay_analiz_{h}", use_container_width=True )
-
-                        if sil:
-                            db.hisse_sil(h)
-                            st.session_state["grafik_aktif_hisse"] = None
-                            st.toast(f"❌ {h} başarıyla silindi.")
-                            st.rerun()
-
-                        if analiz:
-                            st.session_state["analiz_edilen_hisse"] = h
-                            st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
-                            st.rerun()
+                        with btn_alt1:
+                            if st.button("🗑️ Sil", key=f"detay_sil_{h}", use_container_width=True):
+                                db.hisse_sil(h)
+                                st.session_state["grafik_aktif_hisse"] = None
+                                st.toast(f"❌ {h} başarıyla silindi.")
+                                st.rerun()
                                 
-                        
+                        with btn_alt2:
+                            if st.button("📈 Teknik Analiz", key=f"detay_analiz_{h}", use_container_width=True):
+                                st.session_state["analiz_edilen_hisse"] = h
+                                st.toast(f"🚀 {h} Analiz Laboratuvarına Aktarılıyor...")
+                                st.rerun()
                                 
                         st.markdown("</div>", unsafe_allow_html=True)
                 
@@ -394,35 +503,47 @@ with aktif_sekme[0]:
                 st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
 
         st.markdown('</div>', unsafe_allow_html=True)
-        
-        
         # --- KAYDIRILABİLİR ALAN BİTİŞİ ---
 
     if st.button("🔄 Verileri Yenile", key="global_refresh_btn"):
         st.cache_data.clear()
         st.rerun()
+        
+        
+        
+        
+        
+        
 
-# --- 2. SEKME: HİSSE ANALİZ ---
-with aktif_sekme[1]:
+# --- 2. SEKME: HİSSE ANALİZ (GÜNCELLENMİŞ VERSİYON) ---
+with sekme2:
     st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
-        analiz_girdisi = st.text_input("Hisse Kodu Girin ve Enter'a Basın (Örn: THYAO)", value=st.session_state["analiz_edilen_hisse"]).upper().strip()
+        analiz_girdisi = st.text_input("Hisse Kodu Girin (Örn: THYAO)").upper().strip()
         analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
         if analiz_tetiklendi and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
     
-    hisse_kodu = st.session_state["analiz_edilen_hisse"]
+    hisse_kodu = st.session_state.get("analiz_edilen_hisse", "")
     if hisse_kodu:
         sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
         try:
-            df = yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
+            df = yf.download(sorgu_kodu, period="300d", interval="1d", progress=False)
             if isinstance(df.columns, pd.MultiIndex): 
                 df.columns = df.columns.droplevel(1)
             
             if not df.empty:
                 kapanis = df['Close'].squeeze()
                 son_fiyat = kapanis.iloc[-1]
-                hedef_fiyat, tahmin_serisi = mobil_tahmin_motoru(df)
+                
+                # TAHMİN MOTORUNU ÇAĞIRMA
+                tahmin_sonuc = mobil_tahmin_motoru(df)
+                
+                hedef_fiyat = tahmin_sonuc["son_tahmin"]
+                tahmin_serisi = tahmin_sonuc["seri"]
+                alt_sinir = tahmin_sonuc["alt"]
+                ust_sinir = tahmin_sonuc["ust"]
+                
                 potansiyel = ((hedef_fiyat - son_fiyat) / son_fiyat) * 100
                 hacim_onay = df['Volume'].squeeze().iloc[-1] > (df['Volume'].squeeze().rolling(10).mean().iloc[-1] * 0.8)
                 
@@ -435,42 +556,59 @@ with aktif_sekme[1]:
                 elif son_rsi > 65 or (son_m < son_ms and son_rsi > 50): sinyal_metni, sinyal_rengi = "🔴 GÜÇLÜ SAT", "#E74C3C"
                 else: sinyal_metni, sinyal_rengi = "🟡 TUT / NÖTR", "#F1C40F"
                 
-                # Rapor Paneli
-                st.markdown(f"""
-                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 10px; border: 1px solid #2D2D2D; margin-bottom: 15px;'>
-                        <h3 style='color: white; margin:0 0 10px 0;'>{hisse_kodu} Raporu</h3>
-                        <span style='font-size:15px; color:white;'>Fiyat: <b>{son_fiyat:,.2f} TL</b> | Hacim Onayı: <b>{'✅' if hacim_onay else '❌'}</b> | Sinyal: <b style='color: {sinyal_rengi};'>{sinyal_metni}</b></span>
-                        <h4 style='color: #00F0FF; margin:10px 0 0 0;'>🚀 YZ Hedef: {hedef_fiyat:.2f} (%{potansiyel:+.2f})</h4>
+                anlz_col1, anlz_col2 = st.columns([1, 2])
+                with anlz_col1:
+                    st.markdown(f"""
+                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 10px; border: 1px solid #2D2D2D;'>
+                        <h3 style='color: white;'>{hisse_kodu} Raporu</h3>
+                        <p>Fiyat: <b>{son_fiyat:,.2f} TL</b></p>
+                        <p>Hacim Onayı: <b>{'✅' if hacim_onay else '❌'}</b></p>
+                        <p>Sinyal: <b style='color: {sinyal_rengi};'>{sinyal_metni}</b></p>
+                        <h4 style='color: #00F0FF;'>🚀 YZ Hedef: {hedef_fiyat:.2f} (%{potansiyel:+.2f})</h4>
                     </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
                 
-                # Tam Ekran Mumlu Grafik Tasarımı
-                fig = go.Figure(data=[go.Candlestick(
-                    x=df.index,
-                    open=df['Open'],
-                    high=df['High'],
-                    low=df['Low'],
-                    close=df['Close'],
-                    increasing_line_color='#2ECC71',
-                    decreasing_line_color='#E74C3C'
-                )])
-                
-                fig.update_layout(
-                    template="plotly_dark",
-                    height=450,
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    xaxis_rangeslider_visible=True
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        except: 
-            st.error("Veri çekilemedi.")
+                with anlz_col2:
+                    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='#121212')
+                    ax.set_facecolor('#1E1E1E')
+                    
+                    # 1. Gerçek veriyi çiz
+                    ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
+                    
+                    # 2. X eksenini 6 nokta olacak şekilde güncelle: 29, 30, 31, 32, 33, 34
+                    tahmin_x = range(29, 35) 
+                    
+                    # 3. Y verilerini birleştir
+                    tahmin_y = np.concatenate(([son_fiyat], tahmin_serisi))
+                    
+                    # 4. Tahmini çiz
+                    ax.plot(tahmin_x, tahmin_y, color='#FF00FF', linestyle='--', label="Tahmin")
+                    
+                    # 5. Güven aralığını çiz (Burası da 6 nokta olmalı)
+                    ax.fill_between(tahmin_x, 
+                                    np.concatenate(([son_fiyat], alt_sinir)), 
+                                    np.concatenate(([son_fiyat], ust_sinir)), 
+                                    color='#FF00FF', alpha=0.1, label="Güven Aralığı")
+                    
+                    ax.tick_params(colors='white')
+                    ax.grid(True, color='#2D2D2D')
+                    ax.legend(loc='upper left')
+                    st.pyplot(fig)
+            else:
+                st.warning("Hisse verisi boş döndü.")
+        except Exception as e:
+            st.error(f"Analiz sırasında hata oluştu: {e}")
      
 # --- 3. SEKME: MEGA RADAR ---
-with aktif_sekme[2]:
+with sekme3:
     st.subheader("🔍 Radar Taraması")
+    # --- SMART CSS PANEL EKLEMESİ ---
     st.markdown("""
         <style>
-        div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p { color: #FFFFFF !important; }
+        /* Checkbox (Onay Kutusu) yazılarını beyaz yapar */
+        div[data-testid="stCheckbox"] label, div[data-testid="stCheckbox"] p {
+            color: #FFFFFF !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -483,11 +621,14 @@ with aktif_sekme[2]:
         bulunanlar = []
         toplam = len(guncel_hisse_listesi)
         
+        # İlerleme elemanları
         ilerleme_bari = st.progress(0)
         durum_alani = st.empty()
-        sonuc_alani = st.empty() 
+        sonuc_alani = st.empty()  # Canlı sonuçlar için boş alan
         
         for idx, h in enumerate(guncel_hisse_listesi):
+            
+            # Taranıyor yazısı için:
             durum_alani.write(f"<span style='color:white;'>Taranıyor: {h} ({idx+1}/{toplam})</span>", unsafe_allow_html=True)
             ilerleme_bari.progress((idx + 1) / toplam)
             
@@ -501,20 +642,27 @@ with aktif_sekme[2]:
                 macd_c = ta.trend.MACD(kapanis).macd().iloc[-1]
                 macd_s = ta.trend.MACD(kapanis).macd_signal().iloc[-1]
                 
+                # Sinyal Kontrolleri
                 sinyal_var = (son_rsi < 42 and macd_c > macd_s) or (sadece_guclu == False and son_rsi < 30)
+                
+                # Hacim Kontrolü
                 hacim_ort = hacim.rolling(10).mean().iloc[-1]
                 hacim_onayli = hacim.iloc[-1] > (hacim_ort * 0.8)
                 
-                if sinyal_var and (not hacim_filtresi or hacim_onayli):
-                    bulunanlar.append(h)
-                    with sonuc_alani.container():
-                        st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
-                        for hisse in bulunanlar:
-                            st.markdown(f"🔹 **{hisse}**")
+                if sinyal_var:
+                    if not hacim_filtresi or hacim_onayli:
+                        bulunanlar.append(h)
+                        # Canlı Güncelleme: Her yeni bulunan hisseyi anında ve bir arada ekrana yazar
+                        with sonuc_alani.container():
+                            st.success(f"✅ {len(bulunanlar)} adet hisse bulundu:")
+                            for hisse in bulunanlar:
+                                st.markdown(f"🔹 **{hisse}**")
             except: 
                 continue
         
+        # İşlem bittiğinde
         durum_alani.text("Tarama tamamlandı!")
         ilerleme_bari.empty()
+        
         if not bulunanlar:
             st.warning("Seçili kriterlerde hisse bulunamadı.")
