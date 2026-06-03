@@ -122,9 +122,17 @@ def guncel_fiyat_indir(sorgu_kodu):
         return df
     except Exception: return pd.DataFrame()
 
-@st.cache_data(ttl=300) 
-def grafik_verisi_indir(sorgu_kodu):
-    return yf.download(sorgu_kodu, period="3mo", interval="1d", progress=False)
+# ==============================================================================
+# 1. PERFORMANS OPTİMİZASYONU (ÖNBELLEKLEME)
+# ==============================================================================
+@st.cache_data(ttl=3600)  # Verileri 1 saat boyunca hafızada tutarak hızı artırır
+def hisse_verisi_indir(kod):
+    try:
+        veri = yf.download(kod, period="300d", interval="1d", progress=False)
+        return veri
+    except Exception:
+        return pd.DataFrame()
+
 
 # --- 1. GÜVENLİ VERİ ÇEKME MOTORU ---
 @st.cache_data(ttl=60)
@@ -562,86 +570,210 @@ with sekme1:
 # --- 2. SEKME: HİSSE ANALİZ (GÜNCELLENMİŞ VERSİYON) ---
 with sekme2:
     st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
+
     with st.form(key="analiz_arama_formu", clear_on_submit=True):
         analiz_girdisi = st.text_input("Hisse Kodu Girin (Örn: THYAO)").upper().strip()
         analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
+
         if analiz_tetiklendi and analiz_girdisi:
             st.session_state["analiz_edilen_hisse"] = analiz_girdisi
-    
+
     hisse_kodu = st.session_state.get("analiz_edilen_hisse", "")
+
     if hisse_kodu:
         sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
+
         try:
-            df = yf.download(sorgu_kodu, period="300d", interval="1d", progress=False)
-            if isinstance(df.columns, pd.MultiIndex): 
+            # Önbellekten veriyi çekiyoruz
+            df = hisse_verisi_indir(sorgu_kodu)
+
+            if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.droplevel(1)
-            
+
             if not df.empty:
-                kapanis = df['Close'].squeeze()
-                son_fiyat = kapanis.iloc[-1]
-                
-                # TAHMİN MOTORUNU ÇAĞIRMA
+                kapanis = df["Close"].squeeze()
+                son_fiyat = float(kapanis.iloc[-1])
+
+                # YZ Tahmin Motoru Çağrısı
                 tahmin_sonuc = mobil_tahmin_motoru(df)
-                
                 hedef_fiyat = tahmin_sonuc["son_tahmin"]
                 tahmin_serisi = tahmin_sonuc["seri"]
                 alt_sinir = tahmin_sonuc["alt"]
                 ust_sinir = tahmin_sonuc["ust"]
-                
+
                 potansiyel = ((hedef_fiyat - son_fiyat) / son_fiyat) * 100
-                hacim_onay = df['Volume'].squeeze().iloc[-1] > (df['Volume'].squeeze().rolling(10).mean().iloc[-1] * 0.8)
-                
-                # Sinyal Hesaplama
-                df['RSI'] = ta.momentum.rsi(kapanis, window=14)
+                hacim_onay = df["Volume"].iloc[-1] > (df["Volume"].rolling(10).mean().iloc[-1] * 0.8)
+
+                # RSI & MACD Hesaplamaları
+                df["RSI"] = ta.momentum.rsi(kapanis, window=14)
                 macd = ta.trend.MACD(kapanis)
-                son_rsi, son_m, son_ms = df['RSI'].iloc[-1], macd.macd().iloc[-1], macd.macd_signal().iloc[-1]
+
+                son_rsi = float(df["RSI"].iloc[-1])
+                son_m = float(macd.macd().iloc[-1])
+                son_ms = float(macd.macd_signal().iloc[-1])
                 
-                if son_rsi < 40 or (son_m > son_ms and son_rsi < 55): sinyal_metni, sinyal_rengi = "🟢 GÜÇLÜ AL", "#2ECC71"
-                elif son_rsi > 65 or (son_m < son_ms and son_rsi > 50): sinyal_metni, sinyal_rengi = "🔴 GÜÇLÜ SAT", "#E74C3C"
-                else: sinyal_metni, sinyal_rengi = "🟡 TUT / NÖTR", "#F1C40F"
+                # ==============================================================
+                # HATA KORUMALI TREND ANALİZİ (Yetersiz Veri Kontrolü)
+                # ==============================================================
+                if len(df) >= 200:
+                    ma200 = float(df["Close"].rolling(200).mean().iloc[-1])
+                    trend = "🟢 Yükseliş" if son_fiyat > ma200 else "🔴 Düşüş"
+                    ma200_kontrolu = True
+                else:
+                    trend = "🟡 Yetersiz Veri (Yeni Arz)"
+                    ma200_kontrolu = False
+
+                # Destek / Direnç
+                destek = float(df["Low"].tail(20).min())
+                direnc = float(df["High"].tail(20).max())
+
+                # Risk / Getiri Oranı (Sıfıra Bölme Güvenliği)
+                risk = son_fiyat - destek
+                getiri = direnc - son_fiyat
                 
-                anlz_col1, anlz_col2 = st.columns([1, 2])
-                with anlz_col1:
-                    st.markdown(f"""
-                    <div style='background-color: #1E1E1E; padding: 20px; border-radius: 10px; border: 1px solid #2D2D2D;'>
-                        <h3 style='color: white;'>{hisse_kodu} Raporu</h3>
-                        <p>Fiyat: <b>{son_fiyat:,.2f} TL</b></p>
-                        <p>Hacim Onayı: <b>{'✅' if hacim_onay else '❌'}</b></p>
-                        <p>Sinyal: <b style='color: {sinyal_rengi};'>{sinyal_metni}</b></p>
-                        <h4 style='color: #00F0FF;'>🚀 YZ Hedef: {hedef_fiyat:.2f} (%{potansiyel:+.2f})</h4>
+                if risk > 0:
+                    rr = round(getiri / risk, 2)
+                elif risk < 0:
+                    rr = "Fiyat Destek Altında"
+                    risk = 0  # Negatif risk görsel olarak sıfırlanır
+                else:
+                    rr = "Risk Yok (Fiyat Destekte)"
+
+                # ATR & Stop Loss / Kar Al
+                atr = ta.volatility.AverageTrueRange(df["High"], df["Low"], df["Close"], window=14).average_true_range().iloc[-1]
+                stop_loss = son_fiyat - (atr * 1.5)
+                kar_al = son_fiyat + (atr * 3)
+
+                # Güven Skoru Hesaplama
+                guven_skoru = 50
+                if son_m > son_ms: guven_skoru += 20
+                if son_rsi < 55: guven_skoru += 15
+                if hacim_onay: guven_skoru += 15
+                guven_skoru = min(100, guven_skoru)
+
+                # Hisse Karnesi Hesaplama
+                puan = 0
+                if son_m > son_ms: puan += 25
+                if hacim_onay: puan += 25
+                if son_rsi < 60: puan += 25
+                if ma200_kontrolu and son_fiyat > ma200: puan += 25
+
+                # Yapay Zeka Yorum Ataması
+                if puan >= 80: ai_yorum = "🚀 Güçlü yükseliş potansiyeli"
+                elif puan >= 60: ai_yorum = "👍 Pozitif görünüm"
+                elif puan >= 40: ai_yorum = "⚠️ Kararsız görünüm"
+                else: ai_yorum = "🔴 Risk yüksek"
+
+                # Nihai Karar Sinyal Mekanizması
+                if son_rsi < 40 or (son_m > son_ms and son_rsi < 55):
+                    sinyal_metni, sinyal_rengi = "🟢 GÜÇLÜ AL", "#2ECC71"
+                elif son_rsi > 65 or (son_m < son_ms and son_rsi > 50):
+                    sinyal_metni, sinyal_rengi = "🔴 GÜÇLÜ SAT", "#E74C3C"
+                else:
+                    sinyal_metni, sinyal_rengi = "🟡 TUT / NÖTR", "#F1C40F"
+
+                # Tahmin Gücü Sınıflandırması
+                if potansiyel > 15: tahmin_gucu = "🔥 Çok Güçlü"
+                elif potansiyel > 8: tahmin_gucu = "🚀 Güçlü"
+                elif potansiyel > 3: tahmin_gucu = "👍 Pozitif"
+                else: tahmin_gucu = "⚠️ Zayıf"
+
+                # ==============================================================
+                # STREAMLIT GÖRSEL ÇIKTI PANELİ
+                # ==============================================================
+                st.success(ai_yorum)
+
+                # 3'lü Bloklar Halinde KPI Panelleri
+                st.markdown("## 📊 KPI Paneli")
+                k1, k2, k3 = st.columns(3)
+                with k1: st.metric("Fiyat", f"{son_fiyat:.2f}")
+                with k2: st.metric("RSI", f"{son_rsi:.1f}")
+                with k3: st.metric("Potansiyel", f"%{potansiyel:+.2f}")
+
+                k4, k5, k6 = st.columns(3)
+                with k4: st.metric("Karne", f"{puan}/100")
+                with k5: st.metric("R/G", str(rr))
+                with k6: st.metric("Güven", f"%{guven_skoru}")
+
+                # Tahmin Grafiği Bölümü
+                st.markdown("## 📈 Tahmin Grafiği")
+                fig, ax = plt.subplots(figsize=(10, 4.5), facecolor="#121212")
+                ax.set_facecolor("#1E1E1E")
+
+                # Ana ve Tahmin Serileri Çizimi
+                ax.plot(range(30), kapanis.tail(30).values, color="#00F0FF", linewidth=2, label="Gerçek")
+                tahmin_x = range(29, 35)
+                tahmin_y = np.concatenate(([son_fiyat], tahmin_serisi))
+                ax.plot(tahmin_x, tahmin_y, color="#FF00FF", linestyle="--", linewidth=2, label="YZ Tahmin")
+                ax.fill_between(tahmin_x, np.concatenate(([son_fiyat], alt_sinir)), np.concatenate(([son_fiyat], ust_sinir)), color="#FF00FF", alpha=0.15)
+                
+                # Yatay Destek, Direnç, Stop ve Hedef Çizgileri
+                ax.axhline(destek, color="green", linestyle=":", alpha=0.7, label="Destek")
+                ax.axhline(direnc, color="red", linestyle=":", alpha=0.7, label="Direnç")
+                ax.axhline(stop_loss, color="orange", linestyle="--", alpha=0.8, label="Stop Loss")
+                ax.axhline(kar_al, color="lime", linestyle="--", alpha=0.8, label="Kar Al")
+
+                # Grafik Kozmetik Ayarları
+                ax.tick_params(colors="white")
+                ax.grid(True, color="#2D2D2D")
+                ax.legend(loc="upper left")
+                
+                # Grafik Ekrana Basılıyor
+                st.pyplot(fig)
+                plt.close(fig)  # RAM Optimizasyonu (Sunucu belleğini korur)
+                     
+                # Destek & Direnç Metrikleri
+                st.markdown("## 🎯 Destek / Direnç")
+                d1, d2, d3 = st.columns(3)
+                with d1: st.metric("Destek", f"{destek:.2f}")
+                with d2: st.metric("Fiyat", f"{son_fiyat:.2f}")
+                with d3: st.metric("Direnç", f"{direnc:.2f}")
+
+                # Yapay Zeka Özet Kartı
+                st.markdown("## 🤖 Yapay Zeka Tahmini")
+                st.info(f"""
+                Hedef Fiyat: {hedef_fiyat:.2f} TL
+                Potansiyel: %{potansiyel:+.2f}
+                Stop Loss: {stop_loss:.2f} TL
+                Kar Al: {kar_al:.2f} TL
+                Risk/Getiri: {rr}
+                Tahmin Gücü: {tahmin_gucu}
+                """)
+
+                # Teknik Özet Bölümü
+                st.markdown("## 📋 Teknik Özet")
+                yorumlar = [
+                    f"Trend Durumu: {trend}", 
+                    f"Stop Loss: {stop_loss:.2f}", 
+                    f"Kar Al: {kar_al:.2f}", 
+                    f"Hisse Karnesi: {puan}/100", 
+                    f"Risk/Getiri Oranı: {rr}"
+                ]
+                for y in yorumlar: 
+                    st.write("•", y)
+
+                # HTML/CSS Destekli Sinyal Kutusu
+                st.markdown("## 🚦 Nihai Karar")
+                st.markdown(f"""
+                    <div style="background:{sinyal_rengi}; padding:20px; border-radius:12px; text-align:center; font-size:26px; font-weight:bold; color:white;">
+                        {sinyal_metni}
                     </div>
                     """, unsafe_allow_html=True)
-                
-                with anlz_col2:
-                    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='#121212')
-                    ax.set_facecolor('#1E1E1E')
-                    
-                    # 1. Gerçek veriyi çiz
-                    ax.plot(range(30), kapanis.tail(30).values, color='#00F0FF', label="Gerçek")
-                    
-                    # 2. X eksenini 6 nokta olacak şekilde güncelle: 29, 30, 31, 32, 33, 34
-                    tahmin_x = range(29, 35) 
-                    
-                    # 3. Y verilerini birleştir
-                    tahmin_y = np.concatenate(([son_fiyat], tahmin_serisi))
-                    
-                    # 4. Tahmini çiz
-                    ax.plot(tahmin_x, tahmin_y, color='#FF00FF', linestyle='--', label="Tahmin")
-                    
-                    # 5. Güven aralığını çiz (Burası da 6 nokta olmalı)
-                    ax.fill_between(tahmin_x, 
-                                    np.concatenate(([son_fiyat], alt_sinir)), 
-                                    np.concatenate(([son_fiyat], ust_sinir)), 
-                                    color='#FF00FF', alpha=0.1, label="Güven Aralığı")
-                    
-                    ax.tick_params(colors='white')
-                    ax.grid(True, color='#2D2D2D')
-                    ax.legend(loc='upper left')
-                    st.pyplot(fig)
+
+                # Güven Skoru Barı ve Oranı
+                st.markdown("## ⭐ Güven Skoru")
+                st.progress(float(guven_skoru) / 100)
+                st.markdown(f"<h3 style='text-align:center'>%{guven_skoru}</h3>", unsafe_allow_html=True)
+
             else:
-                st.warning("Hisse verisi boş döndü.")
+                st.warning("Hisse verisi boş döndü. Doğru sembol girdiğinizden emin olun.")
+
         except Exception as e:
-            st.error(f"Analiz sırasında hata oluştu: {e}")
+            st.error(f"Analiz sırasında beklenmeyen bir hata oluştu: {e}")
+
+
+
+
      
 # --- 3. SEKME: MEGA RADAR ---
 with sekme3:
