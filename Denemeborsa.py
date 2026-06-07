@@ -5,13 +5,6 @@ Created on Sun Jun  7 20:41:01 2026
 @author: EmirAysu
 """
 
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jun  5 18:52:26 2026
-
-@author: EmirAysu
-"""
-
 import os
 import sys
 import logging
