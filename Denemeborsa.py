@@ -1,476 +1,1482 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun Jun  7 20:41:01 2026
+Created on Wed Jun 10 22:57:52 2026
 
 @author: EmirAysu
 """
 
+# =============================================================================
+# 1. STANDART KÜTÜPHANELER (Python'ın kendi içindekiler)
+# =============================================================================
 import os
 import sys
 import logging
-import sqlite3
-from pathlib import Path  # Hata önleyici yeni kütüphane
+import subprocess
+from pathlib import Path
+from datetime import datetime
+
+# Streamlit'in Spyder/Bare modda çalışırken attığı "missing ScriptRunContext" uyarısını sustur
+logging.getLogger("streamlit.runtime.scriptrunner.script_runner").setLevel(logging.CRITICAL)
+
+# =============================================================================
+# 2. ÜÇÜNCÜ PARTİ KÜTÜPHANELER (pip ile kurduklarınız)
+# =============================================================================
 import numpy as np
 import pandas as pd
-import matplotlib
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-import streamlit as st
-import yfinance as yf
-import ta
 import joblib
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.impute import SimpleImputer
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
+import ta
+import yfinance as yf
+import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from streamlit_autorefresh import st_autorefresh
+from zoneinfo import ZoneInfo
 
 
-# ==============================================================================
-# --- DİNAMİK DOSYA YOLU VE KLASÖR AYARLARI (KODUN EN BAŞINDA OLMALIDIR) ---
-# ==============================================================================
-# Kodun çalıştığı ana dizini (D:\borsa) otomatik tespit eder
-BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else sys._MEIPASS
-MODEL_PATH = os.path.join(BASE_DIR, "models", "ensemble.pkl")
+# =============================================================================
+# 3. ORTAM TESPİTİ VE GÜVENLİK MUHAFIZLARI (CRITICAL FIX)
+# =============================================================================
+IS_STREAMLIT = False
 
-# KRİTİK HATA DÜZELTMESİ: os.makedirs yerine pathlib.Path kullanarak ntpath çakışması önlendi
-Path(MODEL_PATH).parent.mkdir(parents=True, exist_ok=True)
-
-MODEL_FEATURES = ["rsi","macd","macd_signal", "ma50", "ma200"]
-
-
-# Matplotlib arkada harici pencere açmasını engeller ve logları kapatır
-matplotlib.use('Agg') 
-logging.getLogger('matplotlib').setLevel(logging.ERROR)
-
-# PyInstaller çevre değişkeni ayarı (Qt çakışmalarını önler)
-if getattr(sys, 'frozen', False):
-    base_dir = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
-    qt_plugin_path = os.path.join(base_dir, "PyQt5", "Qt5", "plugins")
-    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = qt_plugin_path
-
-
-
-# --- DİNAMİK MOD TESPİTİ ---
 try:
-    from streamlit.runtime import exists
-    IS_STREAMLIT = exists()
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx() is not None:
+        IS_STREAMLIT = True
 except ImportError:
-    IS_STREAMLIT = False
+    pass
 
-# Butona tıklandığında çalışacak mobil uyumlu fonksiyon
-def grafik_tetikle(hisse_kodu, su_an_aktif_mi):
-    if su_an_aktif_mi:
-        st.session_state["grafik_aktif_hisse"] = None
-    else:
-        st.session_state["grafik_aktif_hisse"] = hisse_kodu
+# =============================================================================
+# 5. AYARLAR VE SUNUCU UYUMLU DİNAMİK DOSYA YOLLARI
+# =============================================================================
+FEATURES_OLD = ["Open", "High", "Low", "Close", "Volume"]
 
-# ==============================================================================
-# 1. VERİTABANI SINIFI
-# ==============================================================================
-class Veritabani:
-    def __init__(self):
-        self.baglanti = sqlite3.connect("takip_listesi.db", check_same_thread=False)
-        self.cursor = self.baglanti.cursor()
-        self.tablo_olustur()
-        if "grafik_aktif_hisse" not in st.session_state:
-            st.session_state["grafik_aktif_hisse"] = None
+FEATURES_FULL = [
+    "Open", "High", "Low", "Close", "Volume",
+    "ma50", "ma200", "rsi", "macd", "macd_signal", "volatility"
+]
 
-    def tablo_olustur(self):
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS watchlist (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                hisse_kodu TEXT UNIQUE,
-                maliyet REAL DEFAULT 0,
-                adet INTEGER DEFAULT 0
-            )
-        """)
-        self.baglanti.commit()
+MODEL_FEATURES = [
+    "Open", "High", "Low", "Close", "Volume",
+    "ma50", "ma200", "rsi", "macd", "macd_signal", "volatility"
+]
 
-    def hisse_ekle(self, kod, maliyet=0.0, adet=0):
-        try:
-            self.cursor.execute("INSERT INTO watchlist (hisse_kodu, maliyet, adet) VALUES (?, ?, ?)", (kod, maliyet, adet))
-            self.baglanti.commit()
-            return True
-        except sqlite3.IntegrityError:
-            self.cursor.execute("UPDATE watchlist SET maliyet = ?, adet = ? WHERE hisse_kodu = ?", (maliyet, adet, kod))
-            self.baglanti.commit()
-            return True
+OUTPUT_SCHEMA = {
+    "ai_comment": str,
+    "signal": str,
+    "score": float
+}
 
-    def hisse_sil(self, kod):
-        self.cursor.execute("DELETE FROM watchlist WHERE hisse_kodu = ?", (kod,))
-        self.baglanti.commit()
+BASE_DIR = Path(__file__).resolve().parents[0]
 
-    def listeyi_getir(self):
-        self.cursor.execute("SELECT hisse_kodu, maliyet, adet FROM watchlist")
-        return self.cursor.fetchall()
+def get_model_path():
+    if os.path.exists(r"d:\borsa\models\ensemble.pkl"):
+        return Path(r"d:\borsa\models\ensemble.pkl")
+    return BASE_DIR / "models" / "ensemble.pkl"
 
-    def hisse_detay_getir(self, kod):
-        self.cursor.execute("SELECT maliyet, adet FROM watchlist WHERE hisse_kodu = ?", (kod,))
-        return self.cursor.fetchone()
+MODEL_PATH = get_model_path()
 
-# ==============================================================================
-# 2. DİNAMİK BIST LİSTESİ MOTORU VE VERİ İNDİRME
-# ==============================================================================
-@st.cache_data(ttl=3600)
-def dinamik_bist_listesi_yukle():
-    varsayilan_liste = ["A1CAP", "ADEL", "AGROT", "AKBNK", "ALARK", "ASELS", "THYAO"]
-    csv_yolu = "bist_hisseler.csv"
+# ==============================================================
+# VERI ÇEKME FONKSİYONLARI (BOYUT HATASI KÖKTEN ÇÖZÜLDÜ)
+# ==============================================================
+# =============================================================================
+# VERİ YÖNETİM KATMANI - REFACTOR SAFE
+# =============================================================================
 
-    if not os.path.exists(csv_yolu):
-        return varsayilan_liste
-    try:
-        df = pd.read_csv(csv_yolu)
-        if df.empty or len(df.columns) == 0:
-            return varsayilan_liste
-        sutun_adi = "kod" if "kod" in df.columns else df.columns[0]
-        
-        hisseler = (
-            df[sutun_adi]
-            .dropna()
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            .unique()
-            .tolist() )
-        return hisseler if hisseler else varsayilan_liste
-    except Exception as e:
-        st.error(f"Hisse listesi yüklenirken hata oluştu: {e}")
-        return varsayilan_liste
+def _clean_yfinance_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Yahoo Finance verisini analiz motoru için standart hale getirir.
 
-@st.cache_data(ttl=60)
-def guncel_fiyat_indir(sorgu_kodu):
-    try:
-        df = yf.download(sorgu_kodu, period="1d", interval="5m", progress=False, auto_adjust=True)
-        if df.empty: return pd.DataFrame()
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-        return df
-    except Exception: return pd.DataFrame()
-    
-@st.cache_data(ttl=3600)
-def hisse_verisi_indir(kod):
-    try:
-        veri = yf.download(kod, period="300d", interval="1d", progress=False)
-        return veri
-    except Exception:
+    - MultiIndex kolonları temizler
+    - Yinelenen kolonları kaldırır
+    - OHLCV kontrolü yapar
+    - Sayısal alanları float'a dönüştürür
+    - Boş fiyat satırlarını temizler
+    - Tarihe göre sıralar
+    - Her zaman DataFrame döndürür
+    """
+    if df is None or df.empty:
         return pd.DataFrame()
 
-def grafik_verisi_indir(sorgu, periyot="1mo", aralik="1d"):
-    try:
-        hisse = yf.Ticker(sorgu)
-        df = hisse.history(period=periyot, interval=aralik)
-        return df if not df.empty else pd.DataFrame()
-    except Exception as e:
-        print(f"Grafik verisi çekilirken hata oluştu ({sorgu}): {e}")
-        return pd.DataFrame()
-
-@st.cache_data(ttl=60)
-def guvenli_fiyat_yakala(sorgu_kodu):
-    try:
-        df = yf.download(sorgu_kodu, period="5d", interval="1d", progress=False, auto_adjust=True)
-        if df is None or df.empty: return None
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-        if "Close" not in df.columns: return None
-        close_seri = df["Close"].dropna()
-        return float(close_seri.iloc[-1]) if not close_seri.empty else None
-    except Exception: return None
-
-TUM_BIST = dinamik_bist_listesi_yukle()
-
-# ==============================================================================
-# 3. ÖZELLİK VE ETİKETLEME MOTORU
-# ==============================================================================
-def create_features(df):
     df = df.copy()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-        
+
+    try:
+        # =====================================================================
+        # 1. MULTIINDEX TEMİZLİĞİ
+        # =====================================================================
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        # =====================================================================
+        # 2. DUPLICATE SÜTUN TEMİZLİĞİ
+        # =====================================================================
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+
+        # =====================================================================
+        # 3. ZORUNLU OHLCV KONTROLÜ
+        # =====================================================================
+        required_cols = {"Open", "High", "Low", "Close", "Volume"}
+
+        if not required_cols.issubset(df.columns):
+            missing = required_cols - set(df.columns)
+            print(f"⚠️ [_clean_yfinance_df] Eksik kolonlar: {missing}")
+            return pd.DataFrame()
+
+        # =====================================================================
+        # 4. SAYISAL DÖNÜŞÜM
+        # =====================================================================
+        numeric_cols = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # =====================================================================
+        # 5. CLOSE BOŞ OLAN SATIRLARI TEMİZLE
+        # =====================================================================
+        df = df.dropna(subset=["Close"])
+
+        # =====================================================================
+        # 6. INDEX SIRALAMA
+        # =====================================================================
+        if len(df.index) > 1:
+            df = df.sort_index()
+
+        # =====================================================================
+        # 7. SON KONTROL
+        # =====================================================================
+        if df.empty:
+            return pd.DataFrame()
+
+        return df
+
+    except Exception as e:
+        print(f"⚠️ [_clean_yfinance_df] Hata: {e}")
+        return pd.DataFrame()
+
+if IS_STREAMLIT:
+    # -------------------------------------------------------------------------
+    # STREAMLIT AKTİF ORTAM (CACHE DESTEKLİ)
+    # -------------------------------------------------------------------------
+    
+    @st.cache_data(ttl=60)
+    def get_live_data(symbol: str, period="1d", interval="5m"):
+        """Anlık takip için 60 saniye ömürlü, kısa periyotlu veri çeker."""
+        df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
+        return _clean_yfinance_df(df)
+
+    @st.cache_data(ttl=3600)
+    def get_history(symbol: str, period="300d", interval="1d"):
+        """Stratejik analizler için 1 saat ömürlü, geniş periyotlu veri çeker."""
+        df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
+        return _clean_yfinance_df(df)
+
+else:
+    # -------------------------------------------------------------------------
+    # ARKA PLAN ORTAMI (CORE / BACKTEST / SCRIPT)
+    # -------------------------------------------------------------------------
+    
+    def get_live_data(symbol: str, period="1d", interval="5m"):
+        """Önbelleksiz, doğrudan canlı tahta verisi çeker."""
+        df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
+        return _clean_yfinance_df(df)
+
+    def get_history(symbol: str, period="300d", interval="1d"):
+        """Önbelleksiz, doğrudan tarihsel bar verisi çeker."""
+        df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
+        return _clean_yfinance_df(df)
+    
+@st.cache_resource(show_spinner=False)
+def load_model() -> dict | None:
+    """Eğitilmiş modeli yükler ve Streamlit cache'inde saklar.
+
+    Returns:
+        dict | None: Model sözlüğü veya hata durumunda None
+    """
+    if not os.path.isfile(MODEL_PATH):
+        print(f"❌ [load_model] Model dosyası bulunamadı: {MODEL_PATH}")
+        return None
+
+    try:
+        model = joblib.load(MODEL_PATH)
+
+        if model is None:
+            print("❌ [load_model] Model boş yüklendi.")
+            return None
+
+        if not isinstance(model, dict):
+            print(f"❌ [load_model] Geçersiz model tipi: {type(model).__name__}")
+            return None
+
+        # Beklenen anahtarlar mevcut mu?
+        required_keys = {"xgb"}
+        missing = required_keys - set(model.keys())
+
+        if missing:
+            print(f"❌ [load_model] Eksik model bileşenleri: {', '.join(missing)}")
+            return None
+
+        print("✅ Model başarıyla yüklendi.")
+        return model
+
+    except Exception as e:
+        print(f"❌ [load_model] Yükleme esnasında kritik hata: {e}")
+        return None
+    
+def validate_output(result, schema):
+    for key in schema:
+        if key not in result:
+            result[key] = None
+    return result
+
+def determine_trend(adx, rsi, flow_signal):
+    
+    # =========================
+    # 1. TREND GÜCÜ SINIFI
+    # =========================
+    if adx >= 30:
+        trend_strength = "strong"
+    elif adx >= 20:
+        trend_strength = "weak"
+    else:
+        trend_strength = "none"
+
+    # =========================
+    # 2. YÖN TESPİTİ (MULTI FACTOR)
+    # =========================
+    score = 0
+
+    # RSI katkısı
+    if rsi > 55:
+        score += 1
+    elif rsi < 45:
+        score -= 1
+
+    # FLOW katkısı (KRİTİK)
+    if flow_signal > 0:
+        score += 1
+    elif flow_signal < 0:
+        score -= 1
+
+    # =========================
+    # 3. SONUÇ HARİTASI
+    # =========================
+    if trend_strength == "none":
+        return "⚪ Yatay / Belirsiz Rejim"
+
+    if trend_strength == "weak":
+        if score >= 1:
+            return "🟡 Zayıf Yükseliş Eğilimi"
+        elif score <= -1:
+            return "🟠 Zayıf Düşüş Eğilimi"
+        else:
+            return "⚪ Kararsız / Sıkışma"
+
+    if trend_strength == "strong":
+        if score >= 2:
+            return "🟢 Güçlü Yükseliş Trendi"
+        elif score <= -2:
+            return "🔴 Güçlü Düşüş Trendi"
+        elif score == 1:
+            return "🟡 Trend var ama momentum zayıf"
+        elif score == -1:
+            return "🟠 Trend aşağı ama alım tepki ihtimali"
+        else:
+            return "⚪ Güçlü trend içinde konsolidasyon"
+
+
+# =============================================================================
+# 1. ERKEN DAĞITIM UYARISI & KÂR KORUMA HESAPLAMASI
+# =============================================================================
+def calculate_exit_strategy(price, rsi, buy_pressure, flow_signal, ma50, gunluk_getiri, direnc):
+    """
+    Ticaret Standartlarında Gelişmiş Satış ve Kâr Koruma Modülü.
+    Tepe yorgunluklarını ve kurumsal dağıtımları tespit ederek erken uyarı üretir.
+    """
+    kar_koruma_skoru = 0
+    
+    if rsi > 50:
+        if rsi > 70:
+            kar_koruma_skoru += 30
+        if buy_pressure < 0.50:
+            kar_koruma_skoru += 30
+        if flow_signal < 0:
+            kar_koruma_skoru += 40
+
+        if kar_koruma_skoru < 30:
+            kar_koruma_durumu = "🟢 Pozisyonu Koru / Tut"
+        elif kar_koruma_skoru < 60:
+            kar_koruma_durumu = "🟡 Kârı Koru (Yakın Stop)"
+        else:
+            kar_koruma_durumu = "🟠 Kademeli Satış Düşünülmeli"
+
+        # Zirve Yorgunluğu
+        zirve_yorgunlugu_sinyali = "🟢 Normal (Zirve Baskısı Yok)"
+        if (price > ma50 * 1.08) and (rsi > 65) and (flow_signal < 0):
+            zirve_yorgunlugu_sinyali = "⚠️ YÜKSELİŞ DEVAM EDİYOR AMA PARA ÇIKIŞI BAŞLADI (Mal Dağıtımı!)"
+
+        # Gün İçi Alarm
+        gun_ici_alarm = "🟢 Normal"
+        if gunluk_getiri > 4 and flow_signal < 0:
+            gun_ici_alarm = "💰 KÂR KORUMA MODU AKTİF (Kademeli satış düşünülebilir)"
+
+        # Tepe Skoru
+        tepe_skoru = 0
+        if rsi > 70:
+            tepe_skoru += 25
+        if flow_signal < 0:
+            tepe_skoru += 25
+        if buy_pressure < 0.48:
+            tepe_skoru += 25
+        if price >= direnc * 0.98:
+            tepe_skoru += 25
+
+        if tepe_skoru <= 25:
+            tepe_bolgesi_durumu = "🟢 Normal Bölge"
+        elif tepe_skoru <= 50:
+            tepe_bolgesi_durumu = "🟡 Dikkat Seviyesi"
+        elif tepe_skoru <= 75:
+            tepe_bolgesi_durumu = "🟠 Kâr Koru / İzle"
+        else:
+            tepe_bolgesi_durumu = "🔴 GÜÇLÜ SATIŞ BÖLGESİ (Tepe Noktası)"
+            
+    else:
+        kar_koruma_skoru = 0
+        tepe_skoru = 0
+        kar_koruma_durumu = "🟢 Pozisyonu Koru / Tut"
+        zirve_yorgunlugu_sinyali = "🟢 Normal (Zirve Baskısı Yok)"
+        gun_ici_alarm = "🟢 Normal"
+        tepe_bolgesi_durumu = "🟢 Normal Bölge"
+
+    # Karar Yapısı ve Yorum Üretimi
+    if flow_signal < -0.15 and buy_pressure < 0.45:
+        ex_action = "BEKLE/SAT"
+        ex_comment = ("Tepe oluşumu yok ancak hisse üzerinde güçlü satış baskısı bulunuyor. "
+                      "Alıcılar zayıf, para çıkışı devam ediyor. Yeni pozisyon için erken.")
+    elif tepe_skoru >= 75 or kar_koruma_skoru >= 60:
+        ex_action = "KADEMELİ SAT"
+        ex_comment = (f"Kritik Uyarı: Tepe skoru (%{tepe_skoru}) and Erken Dağıtım riski çok yüksek. "
+                      f"Fiyat yükseliyor görünse de akıllı para çıkışı (Flow Signal: {flow_signal:.3f}) onaylandı. "
+                      f"Kar realizasyonu rasyoneldir.")
+    elif tepe_skoru >= 50 or gun_ici_alarm != "🟢 Normal":
+        ex_action = "KÂR KORU / İZLE"
+        ex_comment = ("Hissede gün içi güçlü marj yakalandı ancak üst kademelerde "
+                      "yorgunluk ve sığlaşma emareleri var. İz süren stopu yukarı çekerek "
+                      "pozisyonu koruyun.")
+    else:
+        ex_action = "TUT"
+        ex_comment = ("Hissede tepe yorgunluğu veya kurumsal mal boşaltma sinyali "
+                      "bulunmuyor. Trend sağlıklı şekilde devam ediyor veya dip arayışı hakim.")
+
+    return {
+        "kar_koruma_skoru": kar_koruma_skoru,
+        "kar_koruma_durumu": kar_koruma_durumu,
+        "tepe_skoru": tepe_skoru,
+        "tepe_bolgesi_durumu": tepe_bolgesi_durumu,
+        "zirve_yorgunlugu": zirve_yorgunlugu_sinyali,
+        "gun_ici_alarm": gun_ici_alarm,
+        "exit_strategy_action": ex_action,
+        "exit_strategy_comment": ex_comment
+    }
+
+def get_live_price(symbol: str) -> float | None:
+    """Hisse senedinin güncel fiyatını almaya çalışır.
+
+    Öncelik sırası:
+    1. fast_info (en hızlı)
+    2. info
+    3. Son kapanış (download)
+
+    Başarısız olursa None döner.
+    """
+    yf_symbol = symbol if symbol.endswith(".IS") else f"{symbol}.IS"
+
+    try:
+        ticker = yf.Ticker(yf_symbol)
+
+        # =====================================================================
+        # 1. ÖNCELİK: FAST_INFO
+        # =====================================================================
+        try:
+            if hasattr(ticker, "fast_info"):
+                fi = ticker.fast_info
+
+                if isinstance(fi, dict):
+                    live_price = fi.get("lastPrice") or fi.get("regularMarketPrice")
+                else:
+                    live_price = getattr(fi, "lastPrice", None) or getattr(fi, "regularMarketPrice", None)
+
+                if live_price is not None and live_price > 0:
+                    return float(live_price)
+        except Exception:
+            pass
+
+        # =====================================================================
+        # 2. FALLBACK: INFO
+        # =====================================================================
+        try:
+            info = ticker.info
+            live_price = (
+                info.get("regularMarketPrice")
+                or info.get("currentPrice")
+                or info.get("previousClose")
+            )
+
+            if live_price is not None and live_price > 0:
+                return float(live_price)
+        except Exception:
+            pass
+
+        # =====================================================================
+        # 3. SON ÇARE: DOWNLOAD
+        # =====================================================================
+        df = yf.download(
+            yf_symbol,
+            period="5d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=False
+        )
+
+        if not df.empty:
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            if "Close" in df.columns:
+                close_price = float(df["Close"].iloc[-1])
+                if close_price > 0:
+                    return close_price
+
+    except Exception:
+        pass
+
+    return None
+
+
+# ==============================================================
+# ANALİZ VE İNDİKATÖR MOTORU
+# ==============================================================
+def add_indicators(df: pd.DataFrame):
+    df = df.copy()
     close = df["Close"]
 
     df["rsi"] = ta.momentum.RSIIndicator(close, 14).rsi()
-    macd_ind = ta.trend.MACD(close)
-    df["macd"] = macd_ind.macd()
-    df["macd_signal"] = macd_ind.macd_signal()
-    df["macd_hist"] = macd_ind.macd_diff()
 
-    df["ma5"] = close.rolling(5).mean()
-    df["ma10"] = close.rolling(10).mean()
-    df["ma20"] = close.rolling(20).mean()
+    macd = ta.trend.MACD(close)
+    df["macd"] = macd.macd()
+    df["macd_signal"] = macd.macd_signal()
+
     df["ma50"] = close.rolling(50).mean()
     df["ma200"] = close.rolling(200).mean()
 
     df["return"] = close.pct_change()
-    df["log_ret"] = np.log(close / close.shift(1))
     df["volatility"] = df["return"].rolling(10).std()
-    df["volume_z"] = (df["Volume"] - df["Volume"].rolling(20).mean()) / df["Volume"].rolling(20).std()
-    
-    df["future_return"] = close.shift(-5) / close - 1
+
     return df
 
-def create_labels(df):
+def calculate_flow(buy, sell):
+    return (buy - sell) / (buy + sell + 1e-9)
+
+def calculate_final_score(proba, guven, smart_money, flow, adx, rsi, hacim_orani):
+    score = (
+        proba * 0.35 +
+        guven * 0.20 +
+        smart_money * 0.20 +
+        ((flow + 1) / 2) * 0.25
+    )
+    if adx < 20: score *= 0.85
+    if rsi > 80: score *= 0.9
+    if hacim_orani < 0.7: score *= 0.95
+
+    return float(np.clip(score, 0, 1))
+
+
+def detect_regime(adx, rsi, flow):
+    if adx > 25 and flow > 0: return "TREND"
+    elif adx < 18: return "SIDEWAYS"
+    elif rsi > 70 and flow < 0: return "DISTRIBUTION"
+    elif rsi < 45 and flow > 0: return "ACCUMULATION"
+    return "UNKNOWN"
+
+def _get_empty_result():
+    return {
+        "price": 0.0, "rsi": 0.0, "adx": 0.0,
+        "flow": 0.0, "flow_raw": 0.0, "flow_signal": 0.0,
+        "buy_volume": 0.0, "sell_volume": 0.0,
+        "buy_pressure": 0.0, "sell_pressure": 0.0,
+        "smart_money": 0.0, "guven_skoru": 0.0,
+        "rr": 1.0, "score": 0.0, "final_score": 0.0,
+        "grade": "N/A", "signal": "⚠️ VERİ YETERSİZ", "color": "#757575",
+        "destek": 0.0, "direnc": 0.0,
+        "regime": "Bilinmiyor", "trend_text": "Veri Yetersiz", "piyasa_notu": "Yetersiz Veri",
+        "stop_loss": 0.0, "take_profit": 0.0,
+        "stock_score": 0.0, "hisse_karnesi": 0.0, "flow_index": 0.0,
+        "ai_comment": "Teknik analiz ve yapay zeka modellerinin çalışabilmesi için daha fazla geçmiş bar oluşması beklenmelidir.",
+        "strategy_action": "BEKLE/SAT",
+        "kalicilik_durumu": "⚠️ VERİ YETERSİZ (Hacim Analizi Yapılamadı)",
+        "suni_kod": 0,
+        "kar_koruma_skoru": 0, "kar_koruma_durumu": "N/A", "tepe_skoru": 0,
+        "tepe_bolgesi_durumu": "N/A", "zirve_yorgunlugu": "N/A", "gun_ici_alarm": "N/A",
+        "exit_strategy_action": "BEKLE/SAT", "exit_strategy_comment": "Veri Yetersiz"
+    }
+
+def _prepare_data(
+    df: pd.DataFrame,
+    features: list | None,
+    model: dict | None
+) -> tuple[pd.DataFrame, list]:
+    """Analiz öncesi veri hazırlama sürecini yönetir.
+
+    - OHLCV kolonlarını sayısala çevirir
+    - Teknik indikatörleri hesaplar
+    - NaN / Inf temizliği yapar
+    - Model ile feature uyumluluğunu kontrol eder
+    - Eksik feature'ları oluşturur
+    - Feature sıralamasını korur
+    """
+    # =====================================================================
+    # 0. GİRİŞ KONTROLÜ
+    # =====================================================================
+    if df is None or df.empty:
+        return pd.DataFrame(), []
+
     df = df.copy()
-    df["target"] = (df["future_return"] > 0.02).astype(int)
-    df = df.dropna()
-    return df
-
-def detect_regime(df):
-    adx = ta.trend.ADXIndicator(df["High"], df["Low"], df["Close"]).adx().iloc[-1]
-    if adx < 18:
-        return "range"
-    elif adx > 25:
-        return "trend"
-    else:
-        return "transition"
-
-# ==============================================================================
-# 4. ENSEMBLE MODEL EĞİTİM MOTORU
-# ==============================================================================
-def train_models(X, y):
-    xgb_m = XGBClassifier(
-        n_estimators=200,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        eval_metric="logloss",
-        random_state=42
-    )
-
-    lgbm_m = LGBMClassifier(
-        n_estimators=200,
-        learning_rate=0.05,
-        num_leaves=31,
-        random_state=42
-    )
-
-    rf_m = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=6,
-        random_state=42
-    )
-
-    xgb_m.fit(X, y)
-    lgbm_m.fit(X, y)
-    rf_m.fit(X, y)
-
-    return xgb_m, lgbm_m, rf_m
-
-def ensemble_predict(xgb_m, lgbm_m, rf_m, X):
-    p1 = xgb_m.predict_proba(X)[:,1]
-    p2 = lgbm_m.predict_proba(X)[:,1]
-    p3 = rf_m.predict_proba(X)[:,1]
-    return (p1 * 0.5 + p2 * 0.35 + p3 * 0.15)[0]
-
-# --- GARANTİLİ MODEL YÜKLEYİCİ VE OTOMATİK EĞİTİCİ ---
-def guvenli_model_yukle():
-    features_list = MODEL_FEATURES
 
     try:
-        # Klasörü garanti et
-        Path(MODEL_PATH).parent.mkdir(parents=True, exist_ok=True)
+        # =====================================================================
+        # 1. SAYISAL KOLON DÖNÜŞÜMÜ
+        # =====================================================================
+        numeric_cols = ["Open", "High", "Low", "Close", "Volume"]
 
-        st.write("MODEL_PATH =", MODEL_PATH)
-        st.write("Dosya mevcut mu?", os.path.exists(MODEL_PATH))
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        if os.path.exists(MODEL_PATH):
-            st.write("Dosya boyutu:", os.path.getsize(MODEL_PATH), "byte")
+        # =====================================================================
+        # 2. TEKNİK İNDİKATÖRLER
+        # =====================================================================
+        df = add_indicators(df)
 
-        # --------------------------------------------------
-        # KAYITLI MODEL VARSA YÜKLE
-        # --------------------------------------------------
-        if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
-            model_verisi = joblib.load(MODEL_PATH)
+        # =====================================================================
+        # 3. INF / NAN TEMİZLİĞİ
+        # =====================================================================
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.dropna()
 
-            if isinstance(model_verisi, dict):
-                if "xgb" in model_verisi and "lgbm" in model_verisi:
-                    st.success("✅ Kayıtlı model yüklendi.")
-                    return model_verisi, features_list
+        if df.empty:
+            return pd.DataFrame(), []
 
-            st.warning("⚠️ Model dosyası bozuk veya eski formatta.")
+        # =====================================================================
+        # 4. FEATURE LİSTESİ
+        # =====================================================================
+        features = [] if features is None else list(features)
 
-        # --------------------------------------------------
-        # MODEL YOKSA YENİDEN EĞİT
-        # --------------------------------------------------
-        st.warning("⚠️ Model bulunamadı veya bozuk. Yeni model oluşturuluyor...")
+        # =====================================================================
+        # 5. MODEL UYUMLULUK KONTROLÜ
+        # =====================================================================
+        if model is not None and isinstance(model, dict) and "xgb" in model:
+            try:
+                xgb_model = model["xgb"]
 
-        taslak_df = yf.download(
-            "THYAO.IS",
-            period="400d",
-            interval="1d",
-            progress=False
-        )
+                # Model feature isimlerini tutuyorsa öncelik ver
+                if hasattr(xgb_model, "feature_names") and xgb_model.feature_names:
+                    features = list(xgb_model.feature_names)
 
-        if taslak_df.empty:
-            raise ValueError("Yfinance üzerinden eğitim verisi indirilemedi.")
+                # Feature sayısını kontrol et
+                elif hasattr(xgb_model, "n_features_in_"):
+                    expected_n = xgb_model.n_features_in_
+                    if len(features) > expected_n:
+                        features = features[:expected_n]
+            except Exception:
+                pass
 
-        taslak_df = create_features(taslak_df)
-        taslak_df = create_labels(taslak_df)
+        # =====================================================================
+        # 6. EKSİK FEATURE OLUŞTUR
+        # =====================================================================
+        for feature in features:
+            if feature not in df.columns:
+                df[feature] = 0.0
 
-        X = taslak_df[features_list]
-        y = taslak_df["target"]
+        # =====================================================================
+        # 7. FEATURE DOĞRULAMA
+        # =====================================================================
+        valid_features = [f for f in features if f in df.columns]
 
-        xgb_m, lgbm_m, rf_m = train_models(X, y)
+        if not valid_features:
+            return pd.DataFrame(), []
 
-        saved_model = {
-            "xgb": xgb_m,
-            "lgbm": lgbm_m,
-            "rf": rf_m
-        }
-
-        joblib.dump(saved_model, MODEL_PATH)
-        st.success("✅ Model başarıyla eğitildi ve kaydedildi.")
-        st.write("Kaydedildi mi?", os.path.exists(MODEL_PATH))
-
-        return saved_model, features_list
-
-    except Exception as e:
-        st.error(f"❌ Model otomatik yapılandırılırken kritik hata oluştu: {e}")
-        return None, features_list
-
-# ==============================================================================
-# 5. RADAR SİSTEMİ
-# ==============================================================================
-def generate_signal(model_dict, features, latest_row):
-    X = latest_row[features].values.reshape(1, -1)
-    prob = ensemble_predict(model_dict["xgb"], model_dict["lgbm"], model_dict["rf"], X)
-
-    if prob > 0.6:
-        return "BUY", prob
-    else:
-        return "NO TRADE", prob
-
-def risk_filter(rsi, prob):
-    if rsi > 70 or prob < 0.6:
-        return False
-    return True
-
-def real_ai_trading_system(hisseler):
-    results = []
-    model_dict, features = guvenli_model_yukle()
-    
-    if model_dict is None:
-        return results
-
-    for h in hisseler:
-        try:
-            df = yf.download(h + ".IS", period="400d", interval="1d", progress=False)
-            if df is None or df.empty: continue
-
-            df_feat = create_features(df)
-            if df_feat.empty: continue
-            
-            latest = df_feat.iloc[-1]
-            if latest[features].isna().any(): continue
-
-            signal, prob = generate_signal(model_dict, features, latest)
-
-            if signal != "BUY": continue
-            rsi = float(latest["rsi"])
-            if not risk_filter(rsi, prob): continue
-
-            price = float(latest["Close"])
-            
-            atr_indicator = ta.volatility.AverageTrueRange(df["High"], df["Low"], df["Close"], 14)
-            atr = float(atr_indicator.average_true_range().dropna().iloc[-1])
-
-            sl = price - atr * 1.5
-            tp = price + atr * 3
-
-            results.append({
-                "hisse": h,
-                "probability": float(prob),
-                "entry": price,
-                "sl": sl,
-                "tp": tp
-            })
-        except Exception:
-            continue
-
-    return sorted(results, key=lambda x: x["probability"], reverse=True)
-
-# ==============================================================================
-# 6. MOBİL REGRESYON TAHMİN MOTORU
-# ==============================================================================
-def mobil_tahmin_motoru(df):
-    try:
-        if df is None or df.empty or len(df) < 250:
-            son = float(df["Close"].iloc[-1]) if df is not None and not df.empty else 0.0
-            return {"son_tahmin": son, "seri": np.full(5, son), "alt": np.full(5, son), "ust": np.full(5, son), "hata_payi": 0.0}
-
-        data = df.copy().tail(300)
-
-        data["RSI"] = ta.momentum.RSIIndicator(close=data["Close"], window=14).rsi()
-        data["MACD"] = ta.trend.MACD(close=data["Close"]).macd()
-        data["EMA20"] = ta.trend.EMAIndicator(close=data["Close"], window=20).ema_indicator()
-        data["EMA50"] = ta.trend.EMAIndicator(close=data["Close"], window=50).ema_indicator()
-        data["EMA200"] = ta.trend.EMAIndicator(close=data["Close"], window=200).ema_indicator()
-        data["ATR"] = ta.volatility.AverageTrueRange(high=data["High"], low=data["Low"], close=data["Close"]).average_true_range()
-        
-        bb = ta.volatility.BollingerBands(close=data["Close"], window=20, window_dev=2)
-        data["BB_High"] = bb.bollinger_hband()
-        data["BB_Low"] = bb.bollinger_lband()
-        data["ADX"] = ta.trend.ADXIndicator(high=data["High"], low=data["Low"], close=data["Close"]).adx()
-
-        data["Close_1"] = data["Close"].shift(1)
-        data["Close_2"] = data["Close"].shift(2)
-        data["Close_3"] = data["Close"].shift(3)
-        data["Close_5"] = data["Close"].shift(5)
-        data["Return_1"] = data["Close"].pct_change(1)
-        data["Return_5"] = data["Close"].pct_change(5)
-        data["Return_20"] = data["Close"].pct_change(20)
-
-        data["Target"] = data["Close"].shift(-1)
-        data.dropna(inplace=True)
-
-        ozellikler = ["Close", "Volume", "RSI", "MACD", "EMA20", "EMA50", "EMA200", "ATR", 
-                      "BB_High", "BB_Low", "ADX", "Close_1", "Close_2", "Close_3", "Close_5", 
-                      "Return_1", "Return_5", "Return_20"]
-
-        X = data[ozellikler]
-        y = data["Target"]
-
-        imp = SimpleImputer(strategy="median")
-        X_fit = imp.fit_transform(X)
-
-        model = RandomForestRegressor(n_estimators=300, max_depth=8, min_samples_leaf=3, random_state=42, n_jobs=-1)
-        model.fit(X_fit, y)
-
-        train_pred = model.predict(X_fit)
-        model_hatasi = np.std(y - train_pred)
-
-        son_veri = data.iloc[-1]
-        input_data = np.array([[son_veri[col] for col in ozellikler]])
-        current_X = imp.transform(input_data)
-        
-        tahminler = []
-        for _ in range(5):
-            yeni_tahmin = model.predict(current_X)[0]
-            tahminler.append(yeni_tahmin)
-            current_X[0, 0] = yeni_tahmin 
-        
-        seri = np.array(tahminler)
-
-        volatilite = data["Close"].pct_change().rolling(20).std().iloc[-1]
-        volatilite_hatasi = son_veri["Close"] * volatilite
-        toplam_hata = (model_hatasi + volatilite_hatasi) / 2
-
-        return {
-            "son_tahmin": float(seri[-1]),
-            "seri": seri,
-            "alt": seri - (toplam_hata * 2),
-            "ust": seri + (toplam_hata * 2),
-            "hata_payi": float(toplam_hata)
-        }
+        return df, valid_features
 
     except Exception:
-        son = float(df["Close"].iloc[-1]) if df is not None and not df.empty else 0.0
-        return {"son_tahmin": son, "seri": np.full(5, son), "alt": np.full(5, son), "ust": np.full(5, son), "hata_payi": 0.0}
+        return pd.DataFrame(), []
+
+
+def _calculate_order_flow(df):
+    price_diff = df["Close"].diff().fillna(0)
+    real_lots = df["Volume"].values
+    diff_vals = price_diff.values
+
+    buy_volume = float(np.where(diff_vals > 0, real_lots, 0).sum())
+    sell_volume = float(np.where(diff_vals < 0, real_lots, 0).sum())
+
+    total_volume = buy_volume + sell_volume + 1e-9
+
+    buy_pressure = buy_volume / total_volume
+    sell_pressure = sell_volume / total_volume
+
+    flow_raw = (buy_volume - sell_volume) / total_volume
+    flow_index = np.tanh(flow_raw)
+    flow_signal = flow_raw
+    
+    df_lots = df["Volume"] / (df["Close"] + 1e-9)
+    avg_lots_20 = df_lots.rolling(window=20).mean().iloc[-1]
+    last_lot = df_lots.iloc[-1]
+    last_price_change = price_diff.iloc[-1]
+    
+    kalicilik_durumu = "Kalıcı / Dengeli"
+    suni_kod = 0  
+    
+    if last_price_change > 0 and last_lot < (avg_lots_20 * 0.8):
+        kalicilik_durumu = "⚠️ SUNİ YÜKSELİŞ (Düşük Hacim Tuzak)"
+        suni_kod = 1
+    elif last_price_change < 0 and last_lot < (avg_lots_20 * 0.8):
+        kalicilik_durumu = "⚠️ SUNİ DÜŞÜŞ (Hacimsiz Silkeleme)"
+        suni_kod = -1
+    elif last_price_change > 0 and last_lot > (avg_lots_20 * 1.3):
+        kalicilik_durumu = "🚀 KALICI YÜKSELİŞ (Hacim Onaylı)"
+        suni_kod = 2
+        
+    return {
+        "buy_volume": buy_volume, "sell_volume": sell_volume,
+        "buy_pressure": buy_pressure, "sell_pressure": sell_pressure,
+        "flow_raw": flow_raw, "flow_index": flow_index, "flow_signal": flow_signal,
+        "kalicilik_durumu": kalicilik_durumu, "suni_kod": suni_kod
+    }
+
+def _calculate_smart_money(last, close, flow_signal):
+    rsi = float(last["rsi"])
+    macd = float(last["macd"])
+    macd_signal = float(last["macd_signal"])
+    ma200 = float(last["ma200"])
+    
+    smart = 0
+    if macd > macd_signal: smart += 20
+    if close > ma200: smart += 20
+    if rsi < 50: smart += 10
+    if rsi > 70: smart -= 10
+    if flow_signal > 0: smart += 15
+
+    return float(np.clip(smart, 0, 100))
+
+def _determine_regime(adx, rsi, flow_signal):
+    if adx > 25 and flow_signal > 0: regime = "TREND_UP"
+    elif adx > 25 and flow_signal < 0: regime = "TREND_DOWN"
+    elif adx < 18: regime = "SIDEWAYS"
+    elif rsi > 70 and flow_signal < 0: regime = "DISTRIBUTION"
+    elif rsi < 45 and flow_signal > 0: regime = "ACCUMULATION"
+    else: regime = "UNKNOWN"
+        
+    regime_map = {
+         "TREND_UP": "🟢 Güçlü Yükseliş Trendi",
+         "TREND_DOWN": "🔴 Güçlü Düşüş Trendi",
+         "SIDEWAYS": "⚪ Yatay Piyasa",
+         "ACCUMULATION": "🟢 Toplanma Bölgesi",
+         "DISTRIBUTION": "🔴 Dağıtım Bölgesi",
+         "VOLATILE": "⚡ Yüksek Volatilite",
+         "UNKNOWN": "⚪ Belirsiz"
+    }
+    return regime_map.get(regime, regime)
+
+
+
+def is_market_open(strict: bool = True) -> bool:
+    """BIST işlem saatlerine göre market açık mı kontrolü."""
+    now = datetime.now(ZoneInfo("Europe/Istanbul"))
+
+    if now.weekday() >= 5:  # Hafta sonu
+        return False
+
+    current_minutes = now.hour * 60 + now.minute
+
+    pre_open_start = 9 * 60 + 40  # 09:40
+    market_open = 10 * 60         # 10:00
+    market_close = 18 * 60 + 10   # 18:10
+
+    if strict:
+        return market_open <= current_minutes <= market_close
+
+    return pre_open_start <= current_minutes <= market_close
+
+def run_mega_radar_analysis(symbol: str, model: dict, features: list) -> dict | None:
+    """Ana analiz motoru.
+    
+    Veriyi indirir, temizler, ön işlemeden geçirir ve XGBoost modeliyle
+    tahmin üreterek sonuçları bir sözlük olarak döndürür.
+    """
+    market_open = is_market_open(strict=True)
+
+    # =====================================================================
+    # 1. VERİ İNDİRME
+    # =====================================================================
+    df_raw = yf.download(
+        f"{symbol}.IS",
+        period="60d",
+        interval="1d",
+        progress=False,
+        auto_adjust=True
+    )
+
+    if df_raw is None or df_raw.empty:
+        return None
+
+    # =====================================================================
+    # 2. PIPELINE (TEMİZLİK VE ÖN İŞLEME)
+    # =====================================================================
+    df_clean = _clean_yfinance_df(df_raw)
+    df_prepared, valid_features = _prepare_data(df_clean, features, model)
+
+    if df_prepared.empty or not valid_features:
+        return None
+
+    # =====================================================================
+    # 3. MODEL KONTROLÜ
+    # =====================================================================
+    if "xgb" not in model or not hasattr(model["xgb"], "predict"):
+        return None
+
+    # =====================================================================
+    # 4. LAST ROW (GÜVENLİ HİZALAMA VE REINDEX)
+    # =====================================================================
+    try:
+        last_row = df_prepared.reindex(columns=valid_features).iloc[[-1]].copy()
+        last_row = last_row.fillna(0)
+    except Exception:
+        return None
+
+    # =====================================================================
+    # 5. PREDICTION (TAHMİN VE TİP DÖNÜŞÜMÜ)
+    # =====================================================================
+    prediction = model["xgb"].predict(last_row)
+    pred_value = float(prediction[0]) if hasattr(prediction, "__len__") else float(prediction)
+
+    return {
+        "symbol": symbol,
+        "prediction": pred_value,
+        "market_open": market_open
+    }
+
+def no_trade_response():
+    return {"signal": "NO_TRADE", "note": "Market closed"}
+
+
+# Sadece ilk satıra , regime_text parametresi eklendi (Hata Çözüldü)
+def _get_market_regime_and_trend(adx, rsi, flow_signal, regime_text):
+    """ADX ve RSI değerlerine göre piyasa rejimini ve trend metnini belirler."""
+    if adx < 20:
+        regime = "range"
+    elif adx > 25:
+        regime = "trend"
+    else:
+        regime = "weak_trend"
+
+    if adx > 25 and rsi > 50:
+        trend_text = "🟢 Yükseliş Eğilimi"
+    elif adx > 25 and rsi < 50:
+        trend_text = "🔴 Düşüş Eğilimi"
+    else:
+        trend_text = "⚪ Yatay / Kararsız"
+        
+    return regime, trend_text
+
+def _calculate_risk_metrics(df, close, veri_donuk):
+    """ATR ve fiyat yapısını hibrit kullanarak destek, direnç ve R/R oranını hesaplar."""
+    atr = ta.volatility.AverageTrueRange(
+        df["High"], df["Low"], df["Close"]
+    ).average_true_range().iloc[-1]
+
+    risk = 0.01
+    reward = 0.01
+    piyasa_notu = ""
+
+    if veri_donuk:
+        destek = close
+        direnc = close
+        rr = 1.0
+        piyasa_notu = "Piyasa veri donuk"
+    else:
+        destek = float(df["Low"].tail(20).min())
+        direnc = float(df["High"].tail(20).max())
+
+        price_risk = abs(close - destek)
+        atr = np.nan_to_num(atr, nan=price_risk)
+
+        risk = max(atr, price_risk)
+        reward = abs(direnc - close)
+
+        risk = max(risk, 0.001)
+        rr = reward / risk
+
+    rr = np.clip(rr, 0.0, 5.0)
+    return destek, direnc, rr, risk, reward, piyasa_notu
+
+
+def _get_edge_case_comment(rsi, flow_index):
+    """RSI ve Para Akışı uç durumlarına göre kritik uyarı mesajı üretir."""
+    edge_comment = "🟢 Normal piyasa koşulu. "
+    if rsi < 25 and flow_index < 0:
+        edge_comment = "⚠️ Aşırı satım + para çıkışı devam ediyor. Panik satış / trend devam riski var. "
+    elif rsi < 25 and flow_index > 0:
+        edge_comment = "🟢 Aşırı satım + para girişi var. Rebound ihtimali artıyor. "
+    elif rsi > 70 and flow_index < 0:
+        edge_comment = "⚠️ Aşırı alım + dağıtım riski oluşuyor. "
+    return edge_comment
+
+
+def _calculate_scores_and_signal(proba, smart_money, rsi, flow_index, regime, regime_text, buy_pressure):
+    """Ağırlık matrisini çalıştırarak skorları üretir ve sinyali belirler."""
+    rsi_weight = 0.20
+    flow_weight = 0.20
+
+    if regime == "range":
+        rsi_weight = 0.35
+        flow_weight = 0.15
+    elif regime == "trend":
+        rsi_weight = 0.15
+        flow_weight = 0.35
+
+    flow_score = (flow_index + 1) / 2
+
+    score = (
+        proba * 0.35 +
+        (smart_money / 100) * 0.25 +
+        (rsi / 100) * rsi_weight +
+        flow_score * flow_weight
+    )
+
+    if rsi < 25 and flow_index < 0:
+        score += 0.05
+
+    if regime == "range":
+        score += 0.02 if rsi < 30 else 0
+    elif regime == "trend":
+        score += 0.02 if flow_index > 0 else 0
+
+    score = np.clip(score, 0, 1)
+
+    # Sinyal Seçimi
+    if score >= 0.80:
+        signal, color = "🚀 ÇOK GÜÇLÜ AL", "#00C853"
+    elif score >= 0.70:
+        signal, color = "🟢 AL", "#4CAF50"
+    elif score >= 0.60:
+        signal, color = "🟡 İZLE", "#FFD600"
+    elif score >= 0.50:
+        signal, color = "⚪ NÖTR", "#90A4AE"
+    else:
+        signal, color = "🔴 SAT", "#E53935"
+
+    if "Yükseliş" in regime_text and buy_pressure > 0.54:
+        if signal == "🔴 SAT":
+            signal, color = "🟡 İZLE (POTANSİYEL AL)", "#FFD600"
+
+    return score, signal, color
+
+
+def _generate_ai_comment(signal, edge_comment, trend_text, flow, dynamic_stop, dynamic_tp, destek, direnc):
+    """Oluşan sinyallere ve piyasa rejimine göre nihai yapay zeka yorumunu oluşturur."""
+    if signal in ["🚀 ÇOK GÜÇLÜ AL", "🟢 AL"]:
+        return (
+            f"{edge_comment}"
+            f"Hisse net bir {trend_text} içerisinde ve güçlü teknik yapı sergiliyor. "
+            f"Alıcı baskısı (%{flow['buy_pressure']*100:.1f}) devam ediyor. "
+            f"Stop-loss: {dynamic_stop:.2f}, hedef: {dynamic_tp:.2f}."
+        )
+    elif signal == "🟡 İZLE (POTANSİYEL AL)":
+        return (
+            f"{edge_comment}"
+            f"Hisse {trend_text} içerisinde. Alıcı baskısı %{flow['buy_pressure']*100:.1f}. "
+            f"Direnç seviyesi {dynamic_tp:.2f} yakın, dikkatli takip gerekli."
+        )
+    elif signal == "🟡 İZLE":
+        return (
+            f"{edge_comment}"
+            f"Piyasa {trend_text}. Sıkışma devam ediyor. "
+            f"Destek {destek:.2f} / direnç {direnc:.2f} izlenmeli."
+        )
+    elif signal == "⚪ NÖTR":
+        return (
+            f"{edge_comment}"
+            f"Yönsüz piyasa ({trend_text}). Net kırılım beklenmeli."
+        )
+    else:
+        return (
+            f"{edge_comment}"
+            f"Satış baskısı güçlü (%{flow['sell_pressure']*100:.1f}). "
+            f"Risk yönetimi ön planda."
+        )
     
     
 
+def analyze(df, model, features, symbol="THYAO"):
+    """
+    Gelişmiş yapay zeka ve sipariş akışı (order flow) entegrasyonlu 
+    hisse senedi analiz motoru. (Production-Safe & Live Consistent)
+    """
+    
+    # -------------------------------------------------------------------------
+    # 1. DATA GUARD (Öncelikli Veri Kontrolü)
+    # -------------------------------------------------------------------------
+    if df is None or len(df) < 30:
+        return _get_empty_result()
+
+    df, features = _prepare_data(df, features, model)
+    if df.empty:
+        return _get_empty_result()
+
+    # -------------------------------------------------------------------------
+    # 2. LIVE PRICE & SEANS SONU GÜVENLİK YAMASI (Her Zaman Çalışmalı)
+    # -------------------------------------------------------------------------
+    live_price = None
+    try:
+        # Seans açıksa anlık fiyatı çekmeyi dene
+        live_price = get_live_price(symbol)
+    except Exception:
+        live_price = None
+
+    # 💡 KRİTİK DÜZELTME: Seans kapalıysa, gün içi 5m barlarındaki yfinance kaymasını 
+    # engellemek için günlük (1d) resmi kapanışı çekip canlı fiyat olarak belirliyoruz.
+    if not is_market_open():
+        try:
+            yf_symbol = f"{symbol}.IS" if not symbol.endswith(".IS") else symbol
+            df_daily = yf.download(yf_symbol, period="1d", interval="1d", auto_adjust=True, progress=False)
+            if not df_daily.empty:
+                resmi_kapanis = float(df_daily["Close"].iloc[-1])
+                if resmi_kapanis > 0:
+                    live_price = resmi_kapanis
+        except Exception:
+            pass
+
+    # DataFrame'in son barını gerçek fiyata göre manipüle ediyoruz
+    if live_price is not None and live_price > 0:
+        close = float(live_price)
+        idx = df.index[-1]
+        df.loc[idx, "Close"] = close
+        
+        # High/Low sınırlarını yeni fiyata göre koruyoruz
+        if close > df.loc[idx, "High"]: df.loc[idx, "High"] = close
+        if close < df.loc[idx, "Low"]:  df.loc[idx, "Low"] = close
+    else:
+        close = float(df.iloc[-1]["Close"])
+
+    base_last = df.iloc[-1].copy()
+
+    # -------------------------------------------------------------------------
+    # 3. MARKET GUARD (Arayüz Esnekliği İçin Konumu Değiştirildi)
+    # -------------------------------------------------------------------------
+    if not is_market_open():
+        # Gece/hafta sonu arayüzün kilitlenmemesi ve son analizi basması için pass geçiyoruz.
+        pass
+
+    # -------------------------------------------------------------------------
+    # 4. MODEL INPUT (Yeni Fiyata Göre Tam Tutarlı)
+    # -------------------------------------------------------------------------
+    X = df[features].iloc[-1:].values
+
+    # Hibrit Model Olasılık Hesaplaması (XGBoost + LightGBM Ensemble)
+    try:
+        proba_xgb = model["xgb"].predict_proba(X)[0][1]
+        proba_lgbm = model["lgbm"].predict_proba(X)[0][1]
+        proba = (proba_xgb + proba_lgbm) / 2
+    except Exception:
+        proba = 0.5  # Güvenli fallback
+
+    # -------------------------------------------------------------------------
+    # 5. INDICATORS (Güncellenen Fiyat Üzerinden Yeniden Hesaplama)
+    # -------------------------------------------------------------------------
+    adx_series = ta.trend.ADXIndicator(df["High"], df["Low"], df["Close"]).adx()
+    adx = float(adx_series.iloc[-1]) if len(adx_series) and not pd.isna(adx_series.iloc[-1]) else 25.0
+
+    rsi_series = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
+    rsi = float(rsi_series.iloc[-1]) if len(rsi_series) and not pd.isna(rsi_series.iloc[-1]) else 50.0
+
+    # -------------------------------------------------------------------------
+    # 6. ORDER FLOW & SCORE GENERATION
+    # -------------------------------------------------------------------------
+    flow = _calculate_order_flow(df)
+    smart_money = float(_calculate_smart_money(base_last, close, flow["flow_signal"]))
+
+    # Güven Skoru: %60 Yapay Zeka Olasılığı + %40 Akıllı Para Hacim Dengesi
+    guven_skoru = float(np.clip(proba * 100 * 0.60 + smart_money * 0.40, 0, 100))
+
+    # -------------------------------------------------------------------------
+    # 7. REGIME + TREND
+    # -------------------------------------------------------------------------
+    regime_text = _determine_regime(adx, rsi, flow["flow_signal"])
+    regime, trend_text = _get_market_regime_and_trend(
+        adx, rsi, flow["flow_signal"], regime_text
+    )
+
+    # -------------------------------------------------------------------------
+    # 8. KALICILIK DURUMU (Karakteristik Analiz)
+    # -------------------------------------------------------------------------
+    flow_index = float(flow["flow_index"])
+
+    if adx < 20 and flow_index < -0.1:
+        kalicilik_durumu = "⚪ Zayıf / Yatay"
+    elif adx > 25 and flow_index > 0.2:
+        kalicilik_durumu = "🚀 KALICI YÜKSELİŞ"
+    elif adx > 25 and flow_index < -0.2:
+        kalicilik_durumu = "🔴 DAĞILIM / ZAYIFLAMA"
+    elif adx < 20 and abs(flow_index) < 0.1:
+        kalicilik_durumu = "⚪ SIKIŞMA / KARARSIZ"
+    else:
+        kalicilik_durumu = "⚪ DENGELİ"
+
+    # -------------------------------------------------------------------------
+    # 9. RISK ENGINE
+    # -------------------------------------------------------------------------
+    veri_donuk = bool(df["Close"].tail(20).nunique() <= 1)
+    destek, direnc, rr, risk, reward, piyasa_notu = _calculate_risk_metrics(
+        df, close, veri_donuk
+    )
+
+    # -------------------------------------------------------------------------
+    # 10. EDGE CASES
+    # -------------------------------------------------------------------------
+    edge_comment = _get_edge_case_comment(rsi, flow_index)
+    if 45 <= rsi <= 55 and abs(flow_index) < 0.05:
+        edge_comment = "⚪ Düşük volatilite / sıkışma bölgesi."
+
+    # -------------------------------------------------------------------------
+    # 11. SCORE & SIGNAL ENGINE
+    # -------------------------------------------------------------------------
+    score, signal, color = _calculate_scores_and_signal(
+        proba, smart_money, rsi, flow_index, regime, regime_text, flow["buy_pressure"]
+    )
+
+    # -------------------------------------------------------------------------
+    # 12. METRICS GENERATION (Karne Yapısı)
+    # -------------------------------------------------------------------------
+    stock_score = float(np.clip(score * 40 + (smart_money / 100) * 30 + min(rr / 3, 1) * 30, 0, 100))
+    final_score = float(np.clip(score * 60 + (smart_money / 100) * 25 + (rr / 5) * 15, 0, 100))
+
+    grade = (
+        "A+" if final_score >= 85 else
+        "A" if final_score >= 75 else
+        "B" if final_score >= 65 else "C"
+    )
+
+    # -------------------------------------------------------------------------
+    # 13. DYNAMIC STOP / TAKE PROFIT
+    # -------------------------------------------------------------------------
+    volatility_ratio = risk / close
+    dynamic_stop = float(close * 0.95 if volatility_ratio < 0.02 else destek)
+    dynamic_tp = float(close * 1.05 if (reward / close < 0.02) else direnc)
+
+    # -------------------------------------------------------------------------
+    # 14. EXIT STRATEGY (Erken Çıkış Sistemi Parametreleri)
+    # -------------------------------------------------------------------------
+    gunluk_getiri = 0.0
+    if len(df) >= 2:
+        prev = float(df["Close"].iloc[-2])
+        if prev > 0:
+            gunluk_getiri = float(((close - prev) / prev) * 100)
+
+    ma50_val = (
+        float(base_last["ma50"])
+        if pd.notna(base_last.get("ma50"))
+        else close
+    )
+
+    exit_data = calculate_exit_strategy(
+        price=close,
+        rsi=rsi,
+        buy_pressure=float(flow["buy_pressure"]),
+        flow_signal=float(flow["flow_signal"]),
+        ma50=ma50_val,
+        gunluk_getiri=gunluk_getiri,
+        direnc=float(direnc)
+    )
+
+    # -------------------------------------------------------------------------
+    # 15. AI STRATEGY COMMENT GENERATION
+    # -------------------------------------------------------------------------
+    ai_comment = _generate_ai_comment(
+        signal, edge_comment, trend_text, flow, dynamic_stop, dynamic_tp, destek, direnc
+    )
+
+    # -------------------------------------------------------------------------
+    # 16. OUTPUT DIRECTORY (Strict Type Casting & Streamlit Safe)
+    # -------------------------------------------------------------------------
+    return {
+        # Gerçek Resmi Fiyatlar ve İndikatörler
+        "price": float(close),
+        "rsi": float(rsi),
+        "adx": float(adx),
+
+        # Piyasa Eğilimleri
+        "regime": str(regime_text),
+        "trend_text": str(trend_text),
+        "kalicilik_durumu": str(kalicilik_durumu),
+        "piyasa_notu": str(piyasa_notu),
+
+        # Emir Akışı Detayları
+        "flow": float(flow_index),
+        "flow_index": float(flow_index),
+        "flow_raw": float(flow["flow_raw"]),
+        "flow_signal": float(flow["flow_signal"]),
+        "buy_volume": int(flow["buy_volume"]),
+        "sell_volume": int(flow["sell_volume"]),
+        "buy_pressure": float(flow["buy_pressure"]),
+        "sell_pressure": float(flow["sell_pressure"]),
+        "smart_money": float(smart_money),
+        "suni_kod": int(flow.get("suni_kod", 0)),
+        
+        # Algoritmik Skorlar ve Kararlar
+        "guven_skoru": float(guven_skoru),
+        "rr": float(rr),
+        "score": float(score),
+        "final_score": float(final_score),
+        "grade": str(grade),
+        "signal": str(signal),
+        "color": str(color),
+
+        # Risk Yönetimi Hatları
+        "destek": float(destek),
+        "direnc": float(direnc),
+        "stop_loss": float(dynamic_stop),
+        "take_profit": float(dynamic_tp),
+
+        # Hisse Puanlama ve Eylem Planı
+        "stock_score": float(stock_score),
+        "hisse_karnesi": float(stock_score),
+        "strategy_action": str(
+            "YAKIN İZLE" if "İZLE" in signal
+            else ("AL" if "AL" in signal else "BEKLE/SAT")
+        ),
+
+        # Yorum Katmanları
+        "ai_comment": str(ai_comment),
+        "edge_comment": str(edge_comment),
+
+        # Tepe ve Erken Çıkış Algoritması Çıktıları
+        "kar_koruma_skoru": float(exit_data.get("kar_koruma_skoru", 0)),
+        "kar_koruma_durumu": str(exit_data.get("kar_koruma_durumu", "🟢 Pozisyonu Koru / Tut")),
+        "tepe_skoru": float(exit_data.get("tepe_skoru", 0)),
+        "tepe_bolgesi_durumu": str(exit_data.get("tepe_bolgesi_durumu", "🟢 Normal Bölge")),
+        "zirve_yorgunlugu": str(exit_data.get("zirve_yorgunlugu", "🟢 Normal")),
+        "gun_ici_alarm": str(exit_data.get("gun_ici_alarm", "🟢 Normal")),
+        "exit_strategy_action": str(exit_data.get("exit_strategy_action", "BEKLE/SAT")),
+        "exit_strategy_comment": str(exit_data.get("exit_strategy_comment", ""))
+    }
+######=========================================================================
+#   Grafik Ekranı
+#####=========================================================================
+def create_technical_chart(df, result):
+
+    # Orijinal df'i korumak ve kolon hatalarını önlemek için kopyalıyoruz
+    df_chart = add_indicators(df.copy())
+    
+    # MACD Histogram hesaplamasını güvenli bir şekilde df_chart üzerinde yapıyoruz
+    df_chart["macd_hist"] = df_chart["macd"] - df_chart["macd_signal"]
+
+    # Matris yapısını kuruyoruz
+    fig = make_subplots(
+        rows=4,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03, # Paneller arası boşluk hafif artırıldı (daha temiz görünüm)
+        row_heights=[0.50, 0.15, 0.15, 0.20],
+        subplot_titles=("Fiyat Grafiği", "Hacim", "RSI (Göreceli Güç Endeksi)", "MACD")
+    )
+
+    # =========================
+    # CANDLESTICK (Mum Grafiği)
+    # =========================
+    fig.add_trace(
+        go.Candlestick(
+            x=df_chart.index,
+            open=df_chart["Open"],
+            high=df_chart["High"],
+            low=df_chart["Low"],
+            close=df_chart["Close"],
+            name="Fiyat",
+            increasing_line_color='#26a69a', # Profesyonel TradingView yeşili
+            decreasing_line_color='#ef5350'  # Profesyonel TradingView kırmızısı
+        ),
+        row=1, col=1
+    )
+
+    # =========================
+    # MA50 (Hareketli Ortalama)
+    # =========================
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index,
+            y=df_chart["ma50"],
+            mode="lines",
+            name="MA50",
+            line=dict(color='#ff9800', width=1.5) # Turuncu tonu
+        ),
+        row=1, col=1
+    )
+    
+    # =========================
+    # MA200 (Hareketli Ortalama)
+    # =========================
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index,
+            y=df_chart["ma200"],
+            mode="lines",
+            name="MA200",
+            line=dict(color='#2196f3', width=2) # Mavi tonu
+        ),
+        row=1, col=1
+    )
+    
+    # =========================
+    # ALIM / SATIM OKLARI (Kesişim Mantığı ile Profesyonelleştirildi)
+    # =========================
+    # Sadece ilk kesişim (crossover/crossunder) anlarında sinyal üretmek için .shift() eklendi.
+    # Böylece her gün ok basmak yerine sadece sinyalin ilk geldiği güne tek bir ok basılır.
+    macd_cross_up = (df_chart["macd"] > df_chart["macd_signal"]) & (df_chart["macd"].shift(1) <= df_chart["macd_signal"].shift(1))
+    macd_cross_down = (df_chart["macd"] < df_chart["macd_signal"]) & (df_chart["macd"].shift(1) >= df_chart["macd_signal"].shift(1))
+
+    buy_signal = macd_cross_up & (df_chart["rsi"] < 70)
+    sell_signal = macd_cross_down & (df_chart["rsi"] > 30)
+
+    # Alım işaretleri (Yeşil Yukarı Ok)
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index[buy_signal],
+            y=df_chart["Low"][buy_signal] * 0.98, # Okların mumun altında düzgün görünmesi için %2 ofset
+            mode="markers",
+            marker=dict(
+                symbol="triangle-up",
+                size=14,
+                color="#00e676",
+                line=dict(color="#003300", width=1)
+            ),
+            name="AL Sinyali"
+        ),
+        row=1, col=1
+    )
+    
+    # Satım işaretleri (Kırmızı Aşağı Ok)
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index[sell_signal],
+            y=df_chart["High"][sell_signal] * 1.02, # Okların mumun üstünde düzgün görünmesi için %2 ofset
+            mode="markers",
+            marker=dict(
+                symbol="triangle-down",
+                size=14,
+                color="#ff1744",
+                line=dict(color="#330000", width=1)
+            ),
+            name="SAT Sinyali"
+        ),
+        row=1, col=1
+    )
+
+    # =========================
+    # HACİM (Volume)
+    # =========================
+    # Profesyonel görünüm için mum rengine göre hacim barlarını renklendiriyoruz
+    volume_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(df_chart["Open"], df_chart["Close"])]
+    
+    fig.add_trace(
+        go.Bar(
+            x=df_chart.index,
+            y=df_chart["Volume"],
+            name="Hacim",
+            marker_color=volume_colors,
+            opacity=0.7
+        ),
+        row=2, col=1
+    )
+    
+    # =========================
+    # RSI PANELİ
+    # =========================
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index,
+            y=df_chart["rsi"],
+            mode="lines",
+            name="RSI",
+            line=dict(color='#9c27b0', width=1.5) # Mor RSI çizgisi
+        ),
+        row=3, col=1
+    )
+
+    # RSI Sınır Çizgileri
+    fig.add_hline(y=70, row=3, col=1, line_dash="dot", line_color="rgba(255,255,255,0.3)")
+    fig.add_hline(y=30, row=3, col=1, line_dash="dot", line_color="rgba(255,255,255,0.3)")
+    fig.update_yaxes(range=[10, 90], row=3, col=1) # Eksen sınırları optimize edildi
+    
+    # =========================
+    # MACD PANELİ & HİSTOGRAM
+    # =========================
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index,
+            y=df_chart["macd"],
+            name="MACD",
+            line=dict(color='#2196f3', width=1.5)
+        ),
+        row=4, col=1
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index,
+            y=df_chart["macd_signal"],
+            name="Sinyal",
+            line=dict(color='#ff9800', width=1.5)
+        ),
+        row=4, col=1
+    )
+    
+    # Histogram Barları (Pozitif/Negatif renk ayrımı ile)
+    hist_colors = ['#26a69a' if val >= 0 else '#ef5350' for val in df_chart["macd_hist"]]
+    fig.add_trace(
+        go.Bar(
+            x=df_chart.index,
+            y=df_chart["macd_hist"],
+            name="Histogram",
+            marker_color=hist_colors,
+            opacity=0.6
+        ),
+        row=4, col=1
+    )
+
+    # =========================
+    # FİNANSAL SEVİYELER (Destek, Direnç, SL, TP)
+    # =========================
+    line_styles = {
+        "destek": dict(color="#26a69a", dash="dot"),
+        "direnc": dict(color="#ef5350", dash="dot"),
+        "stop_loss": dict(color="#ff1744", dash="dash"),
+        "take_profit": dict(color="#00e676", dash="dash")
+    }
+    
+    labels = {"destek": "Destek", "direnc": "Direnç", "stop_loss": "Stop Loss (SL)", "take_profit": "Take Profit (TP)"}
+
+    for key, style in line_styles.items():
+        if key in result and result[key] is not None:
+            fig.add_hline(
+                y=result[key],
+                row=1, col=1,
+                line_dash=style["dash"],
+                line_color=style["color"],
+                annotation_text=f"{labels[key]}: {result[key]:.2f}",
+                annotation_position="top left",
+                annotation_font=dict(color=style["color"], size=10)
+            )
+
+    # =========================
+    # SON FİYAT ETİKETİ
+    # =========================
+    son_fiyat = float(df_chart["Close"].iloc[-1])
+    fig.add_annotation(
+        x=df_chart.index[-1],
+        y=son_fiyat,
+        text=f"Son: {son_fiyat:.2f}",
+        showarrow=True,
+        arrowhead=2,
+        arrowcolor="#ffffff",
+        ax=-50, ay=-30,
+        font=dict(color="#ffffff", size=11),
+        bgcolor="rgba(0,0,0,0.7)",
+        bordercolor="#ffffff",
+        borderwidth=1,
+        row=1, col=1
+    )
+
+    # =========================
+    # GÖRÜNÜM VE LAYOUT (Birleştirildi, Çelişkiler Giderildi)
+    # =========================
+    fig.update_yaxes(title_text="Fiyat ($)", row=1, col=1)
+    fig.update_yaxes(title_text="Hacim", row=2, col=1)
+    fig.update_yaxes(title_text="RSI", row=3, col=1)
+    fig.update_yaxes(title_text="MACD", row=4, col=1)
+
+    fig.update_layout(
+        template="plotly_dark",
+        height=1000, # İdeal ve dengeli bir yükseklik ayarlandı
+        hovermode="x unified",
+        xaxis_rangeslider_visible=False,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=10)
+        ),
+        margin=dict(l=50, r=50, t=70, b=50) # Grafik kenar boşlukları optimize edildi
+    )
+
+    return fig
+
+    
 
 
 
 # ==============================================================================
-# 4. STREAMLIT MASAÜSTÜ UYGULAMA PANELİ
+# PYQT5 MASAÜSTÜ PENCERE SINIFI (SENİN VERDİĞİN OTOMATİK BAŞLATICI)
+# ==============================================================================
+if PYQT_AVAILABLE:
+    class BorsaMobilUygulama(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("Borsa Kontrol Paneli")
+            self.setGeometry(200, 200, 450, 220)
+            self.setStyleSheet("background-color: #121212; color: white;")
+            
+            merkezi_widget = QWidget()
+            layout = QVBoxLayout()
+            
+            self.baslik = QLabel("🖥️ Borsa Hibrit Motoru Aktif")
+            self.baslik.setAlignment(Qt.AlignCenter)
+            self.baslik.setStyleSheet("font-size: 18px; font-weight: bold; color: #00F0FF; margin-top: 10px;")
+            
+            self.acıklama = QLabel("Uygulama arka planda hazır.\nGelişmiş grafik ve analiz paneline erişmek için\naşağıdaki butona tıklayarak tarayıcı modunu başlatın.")
+            self.acıklama.setAlignment(Qt.AlignCenter)
+            self.acıklama.setStyleSheet("font-size: 12px; color: #aaaaaa; margin: 15px 0;")
+            
+            self.buton = QPushButton("🌐 Gelişmiş Web Panelini Başlat")
+            self.buton.setStyleSheet("""
+                QPushButton {
+                    background-color: #007BFF; 
+                    color: white; 
+                    padding: 12px; 
+                    font-weight: bold; 
+                    border-radius: 6px;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #0056b3;
+                }
+            """)
+            self.buton.clicked.connect(self.streamlit_panel_ac)
+            
+            layout.addWidget(self.baslik)
+            layout.addWidget(self.acıklama)
+            layout.addWidget(self.buton)
+            merkezi_widget.setLayout(layout)
+            self.setCentralWidget(merkezi_widget)
+            
+        def streamlit_panel_ac(self):
+            self.baslik.setText("🚀 Panel Başlatılıyor...")
+            self.buton.setEnabled(False)
+            subprocess.Popen(["streamlit", "run", sys.argv[0]])
+            self.close()
+
+# ==============================================================================
+# 4. STREAMLIT MASAÜSTÜ UYGULAMA PANELİ (MANTIK VE CSS KORUNDU)
 # ==============================================================================
 if IS_STREAMLIT:    
     st.set_page_config(page_title="Masaüstü Borsa", layout="wide")
@@ -537,6 +1543,7 @@ if IS_STREAMLIT:
         div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
         </style>
     """, unsafe_allow_html=True)
+       
 
     st.title("🖥️ Borsa")
     st.caption(f"⏱️ Canlı takip tablosu 60 saniyede bir otomatik güncellenir. Son Yenilenme: {pd.Timestamp.now().strftime('%H:%M:%S')}")
@@ -558,7 +1565,8 @@ if IS_STREAMLIT:
             st.session_state["menü_aktif_hisse"] = hisse_adi 
             st.session_state["grafik_goster"] = False
 
-    sekme1, sekme2, sekme3, sekme4, sekme5 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR","Mega 2","YAPAY ZEKA"])
+    # 5 Adet Gelişmiş Sekme Yapısı
+    sekme1, sekme2, sekme3, sekme4, sekme5 = st.tabs(["PORTFÖY & STOP", "HİSSE ANALİZ", "MEGA RADAR", "Mega 2", "YAPAY ZEKA"])
 
     st.markdown("""
         <style>
@@ -580,1388 +1588,234 @@ if IS_STREAMLIT:
         }
         </style>
     """, unsafe_allow_html=True)
+    
+    
 
-    # --- 1. SEKME: PORTFÖY (WIDGET TABLE) ---
-    with sekme1:
-        
-        hisserler = db.listeyi_getir()
-
-        with st.expander("➕ Hisse Ekle / Düzenle"):
-            with st.form(key="hisse_ekleme_formu", clear_on_submit=True):
-                yeni_hisse = st.text_input("Hisse Kodu").upper().strip()
-                c1, c2 = st.columns(2)
-                maliyet = c1.number_input("Maliyet", value=0.0, step=0.01)
-                adet = c2.number_input("Adet", value=0, step=1)
-                if st.form_submit_button("Kaydet") and yeni_hisse:
-                    db.hisse_ekle(yeni_hisse, maliyet, adet)
-                    st.rerun()
-
-        if not hisserler:
-            st.warning("Takip listesi boş.")
-        else:
-            # --- TAMAMEN SABİT BAŞLIKLAR ---
-            st.markdown("""
-                <div style="
-                    background-color: #121212;
-                    display: flex;
-                    justify-content: space-between;
-                    font-weight: bold;
-                    font-size: 12px;
-                    color: #888888;
-                    padding-right: 45px;
-                    padding-top: 10px;
-                    padding-bottom: 5px;
-                    margin-bottom: 0px;
-                ">
-                    <span style="width:25%; text-align:left;">HİSSE/ADET</span>
-                    <span style="width:25%; text-align:center;">FİYAT/MLY</span>
-                    <span style="width:25%; text-align:center;">K/Z (TL)</span>
-                    <span style="width:25%; text-align:right;">DEĞİŞİM</span>
-                </div>
-                <hr style="margin:0 0 5px 0; border:0; border-top:1px solid #333;">
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-                <style>
-                .scrollable-container {
-                    max-height: 400px; /* Listenin kaplayacağı maksimum yükseklik */
-                    overflow-y: auto;  /* Veri sığmazsa kaydırma çubuğu çıkar */
-                    padding-right: 5px;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-            
-
-            # --- KAYDIRILABİLİR ALAN BAŞLANGICI ---
-            # Bu div sayesinde listeniz telefonda ekranı yukarı taşımayacak, kendi içinde kayacak.
-            st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
-
-            for h, maliyet, adet in hisserler:
-                sorgu = h if h.endswith(".IS") else h + ".IS"
-                canli_fiyat = guvenli_fiyat_yakala(sorgu)
-                
-                if canli_fiyat is not None:
-                    toplam_maliyet = maliyet * adet
-                    
-                    if maliyet > 0:
-                        kz_tl = (canli_fiyat - maliyet) * adet
-                        degisim_yuzde = ((canli_fiyat - maliyet) / maliyet) * 100
-                    else:
-                        kz_tl = 0.0
-                        degisim_yuzde = 0.0
-
-                    renk = "#2ECC71" if kz_tl >= 0 else "#E74C3C"
-                    col_veri, col_btn = st.columns([88, 12])
-                    
-                    with col_veri:
-                        st.markdown(f"""
-                            <div style="display:flex; justify-content:space-between; align-items:center; height:35px;">
-                                <div style="width:25%; text-align:left;">
-                                    <div style="color:#00F0FF; font-weight:bold; font-size:14px;">{h}</div>
-                                    <div style="color:#666; font-size:11px;">{adet} Ad.</div>
-                                </div>
-                                <div style="width:25%; text-align:center;">
-                                    <div style="color:white; font-size:14px;">{canli_fiyat:.2f}</div>
-                                    <div style="color:#666; font-size:11px;">M:{maliyet:.2f}</div>
-                                </div>
-                                <div style="width:25%; text-align:center;">
-                                    <div style="color:{renk}; font-size:13px; font-weight:500;">{kz_tl:+,.2f}</div>
-                                    <div style="color:#888; font-size:11px;">({toplam_maliyet:,.2f} TL)</div>
-                                </div>
-                                <div style="width:25%; text-align:right; color:{renk}; font-weight:bold; font-size:13px;">
-                                    %{degisim_yuzde:+.2f}
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-                    with col_btn:
-                        is_active = st.session_state.get("grafik_aktif_hisse") == h
-                        button_label = "➖" if is_active else "➕"
-                        
-                        st.button(
-                            button_label, 
-                            key=f"btn_graf_{h}", 
-                            use_container_width=True,
-                            on_click=grafik_tetikle,
-                            args=(h, is_active))
-
-                    if st.session_state.get("grafik_aktif_hisse") == h:
-                        df_gr = grafik_verisi_indir(sorgu)
-                        if not df_gr.empty:
-                            if isinstance(df_gr.columns, pd.MultiIndex): 
-                                df_gr.columns = df_gr.columns.droplevel(1)
-                            fig = go.Figure(data=[go.Candlestick(x=df_gr.index, open=df_gr['Open'], high=df_gr['High'], low=df_gr['Low'], close=df_gr['Close'])])
-                            fig.update_layout(template="plotly_dark", height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
-                            st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.markdown('<hr style="margin:5px 0; border:0; border-top:1px solid #1A1A1A;">', unsafe_allow_html=True)
-                else:
-                    st.error(f"⚠️ {h} için bağlantı hatası oluştu.")
-
-            st.markdown('</div>', unsafe_allow_html=True)
-            # --- KAYDIRILABİLİR ALAN BİTİŞİ ---
-
-        if st.button("🔄 Verileri Yenile", key="global_refresh_btn"):
-            st.cache_data.clear()
-            st.rerun()
-            
-            
-            
-            
- 
-    # --- 2. SEKME: HİSSE ANALİZ (GÜNCELLENMİŞ VE GÜVENLİ VERSİYON) ---
     with sekme2:
-        st.subheader("🔍 Detaylı Hisse Analiz Laboratuvarı")
+        # Otomatik yenileme motoru
+        st_autorefresh(interval=60000, key="refresh_sekme2")
 
-        # Arama Formu Bölümü
-        with st.form(key="analiz_arama_formu", clear_on_submit=True):
-            analiz_girdisi = st.text_input("Hisse Kodu Girin (Örn: THYAO)").upper().strip()
-            analiz_tetiklendi = st.form_submit_button("🚀 Analiz Et")
+        # =====================================================================
+        # 0. SESSION STATE (HAFIZA) BAŞLANGIÇ TANIMLARI
+        # =====================================================================
+        if "aktif_hisse" not in st.session_state:
+            st.session_state.aktif_hisse = ""
 
-            if analiz_tetiklendi and analiz_girdisi:
-                st.session_state["analiz_edilen_hisse"] = analiz_girdisi
+        # =====================================================================
+        # 1. AKILLI ARAMA FORMU (Kutuyu Enter'dan Sonra Temizleyen Yapı)
+        # =====================================================================
+        with st.form(key="hisse_arama_formu", clear_on_submit=True):
+            hisse_input = st.text_input("Hisse Senedi Kodu (Örn: THYAO, TUREX):")
+            submit_button = st.form_submit_button("🔍 Analiz Et", use_container_width=False)
+            
+            if submit_button and hisse_input:
+                # Kutudan gelen veriyi temizleyip hafızaya alıyoruz
+                st.session_state.aktif_hisse = hisse_input.strip().upper()
+
+        # =====================================================================
+        # 2. ANA ÇALIŞMA BLOKU (Hafızada aktif bir hisse varsa çalışır)
+        # =====================================================================
+        if st.session_state.aktif_hisse:
+            hisse_kodu = st.session_state.aktif_hisse
+            
+            # Kullanıcının manuel .IS yazma ihtimaline karşı akıllı temizlik (Örn: TUREX.IS.IS faciasını önler)
+            if hisse_kodu.endswith(".IS"):
+                hisse_temiz = hisse_kodu.replace(".IS", "")
+            else:
+                hisse_temiz = hisse_kodu
                 
-        hisse_kodu = st.session_state.get("analiz_edilen_hisse", "")
+            sembol = f"{hisse_temiz}.IS"
+            
+            # Kullanıcıya şu an hangi hissenin analizini gördüğünü hatırlatan etiket
+            st.caption(f"🔎 Şu an incelenen hisse: **{sembol}**")
 
-        if hisse_kodu:
-            sorgu_kodu = hisse_kodu if hisse_kodu.endswith(".IS") else hisse_kodu + ".IS"
+            # Piyasa durumuna göre esnek ve hatasız veri çekme stratejisi
+            market_active = is_market_open(strict=True)
 
-            try:
-                # Önbellekten veriyi çekiyoruz
-                df = hisse_verisi_indir(sorgu_kodu)
+            if market_active:
+                # Gündüz seansı: Son 5 günün 5 dakikalık barları
+                p_time, i_time = "5d", "5m"
+            else:
+                # Akşam seansı: İndikatörlerin ve ML modelinin çökmemesi için en az 1 yıllık günlük veri
+                p_time, i_time = "1y", "1d"
+                
+            # 1. Deneme: Standart .IS uzantısı ile veri çekme
+            df_st = get_live_data(sembol, period=p_time, interval=i_time)
 
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.droplevel(1)
-              
-                if not df.empty:
-                    # ==============================================================
-                    # GÜVENLİ DEĞİŞKEN BAŞLATMA BLOĞU (Çökmeleri Önler)
-                    # ==============================================================
-                    puan = 0
-                    guven_skoru = 0
-                    smart_money = 0
-                    radar_puan = 0
-                    basari_olasiligi = 0
-                    ai_yorum = "Analiz verisi yetersiz"
-                    sinyal_metni, sinyal_rengi = "N/A", "#808080"
-                    genel_not = 0
-                    derece = "N/A"
-                    trend_gucu = "🟡 Veri Yetersiz"
-                    bb_sinyal = "🟡 Veri Yetersiz"
-                    adx_yorum = "🟡 Veri Yetersiz"
-                    hacim_yorum = "⚪ Normal"
-                    son_rsi, son_m, son_ms, son_adx = 50, 0, 0, 0
+            # 2. Deneme (Bariyer): Eğer yfinance .IS ile boş döndüyse, uzantısız dene
+            if df_st is None or df_st.empty:
+                df_st = get_live_data(hisse_temiz, period=p_time, interval=i_time)
+                if df_st is not None and not df_st.empty:
+                    sembol = hisse_temiz
 
-                    # ==============================================================
-                    # 1. MATEMATİKSEL VE TEKNİK HESAPLAMALAR BLOĞU
-                    # ==============================================================
-                    # DataFrame içindeki boş satırları temizle
-                    df = df.dropna(subset=["Close", "High", "Low", "Volume"])
-                    # =========================
-                    # 📊 ARZ / TALEP (VOLUME BASED FLOW)
-                    # =========================
+            model_st = load_model()
 
-                    df["price_change"] = df["Close"].diff()
+            # KONTROL BARIYERI: Veri seti veya model boşsa arayüzü patlatma
+            if df_st is None or df_st.empty:
+                st.error(f"❌ {sembol} için veri çekilemedi. Lütfen kodu veya internet bağlantınızı kontrol edin.")
+            elif model_st is None:
+                st.error("❌ Yapay zeka modeli sistemden yüklenemedi.")
+            else:
+                # Modeli ve veriyi ana analiz motoruna gönderiyoruz
+                result = analyze(df_st, model_st, MODEL_FEATURES, symbol=hisse_temiz)
+                
+                if not result:
+                    st.warning("⚠️ Analiz motoru bu hisse için sonuç üretemedi.")
+                else:
+                    # =============================================================
+                    # ⏱️ CANLI GÜNCELLENME SAATİ
+                    # =============================================================
+                    su_an = datetime.now().strftime("%H:%M:%S")
+                    st.markdown(f"""
+                    <div style="
+                        background-color: #1E1E1E; padding: 10px; border-radius: 8px; 
+                        border-left: 5px solid #2196f3; margin-bottom: 20px;">
+                        ⏱️ <b>Son Güncellenme Zamanı:</b> <span style="color: #2196f3; font-weight: bold;">{su_an}</span> 
+                        <span style="font-size: 12px; color: #888888; margin-left: 10px;">(Kutu temizlendi, arka plan takibi aktif)</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # =============================================================
+                    # 🚦 HAREKET KALICILIK & TUZAK DEDEKTÖRÜ
+                    # =============================================================
+                    suni_kod = result.get("suni_kod", 0)
+                    status_color = "#4CAF50" if suni_kod == 2 else ("#FF9800" if suni_kod in [1, -1] else "#90A4AE")
+                    status_bg = "rgba(76, 175, 80, 0.1)" if suni_kod == 2 else ("rgba(255, 152, 0, 0.1)" if suni_kod in [1, -1] else "rgba(144, 164, 174, 0.1)")
 
-                    df["buy_pressure"] = np.where(df["price_change"] > 0, df["Volume"], 0)
-                    df["sell_pressure"] = np.where(df["price_change"] < 0, df["Volume"], 0)
-
-                    buy_volume = df["buy_pressure"].sum()
-                    sell_volume = df["sell_pressure"].sum()
-
-                    total_flow = buy_volume + sell_volume
-
-                    if total_flow > 0:
-                        alim_orani = (buy_volume / total_flow) * 100
-                        satim_orani = (sell_volume / total_flow) * 100
+                    st.markdown(f"""
+                    <div style="
+                        background-color: {status_bg}; padding: 15px; border-radius: 12px; 
+                        border: 1px solid {status_color}; border-left: 6px solid {status_color}; margin-bottom: 25px;">
+                        <span style="font-size: 14px; color: #888888; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Hacim ve Trend Doğrulama</span>
+                        <div style="font-size: 20px; font-weight: 700; color: white; margin-top: 5px;">
+                            {result.get('kalicilik_durumu', 'Veri Yok')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # =============================================================
+                    # 🎯 KÂR KORUMA & ERKEN SATIŞ DİSİPLİNİ (Tepe Dedektörü)
+                    # =============================================================
+                    tepe_skoru = result.get("tepe_skoru", 0)
+                    if tepe_skoru <= 25:
+                        exit_color = "#4CAF50"
+                    elif tepe_skoru <= 50:
+                        exit_color = "#FFEB3B"
+                    elif tepe_skoru <= 75:
+                        exit_color = "#FF9800"
                     else:
-                        alim_orani = 50
-                        satim_orani = 50
-
-                    # Smart Flow Index (ek feature gibi kullanabilirsin)
-                    flow_index = alim_orani - satim_orani
-
-                    if df.empty or len(df) < 60:
-                        st.warning("⚠️ Analiz için yeterli temiz geçmiş veri bulunmuyor.")
-                        st.stop()
-
-                    kapanis = df["Close"].squeeze()
-                    son_fiyat = float(kapanis.dropna().iloc[-1])
-                 
-                    # ==============================================================
-                    # YZ TAHMİN MOTORU & MODEL EĞİTİM ENTEGRASYONU
-                    # ==============================================================
-                    try:
-                        # Model özellikleri (features) oluşturuluyor
-                        df_feat = create_features(df)
-                        missing = [f for f in MODEL_FEATURES if f not in df_feat.columns]
-                        if missing:
-                            st.error(f"Eksik feature: {missing}")
-                            st.stop()
-                            
-                        # Eğitim için X ve y hazırlanıyor (Geçmiş veriler)
-                        features_list = MODEL_FEATURES
-                        X_live = df_feat[features_list].iloc[-1:]
-                                          
-                        # Yapay hedef değişkeni oluşturma (Örn: 3 gün sonrası yukarıda mı?)
-                        df_feat["future_return"] = df_feat["Close"].shift(-3) / df_feat["Close"] - 1
-                        df_feat["target"] = np.where(df_feat["future_return"] > 0.01, 1, 0)
+                        exit_color = "#F44336"
                         
-                        X_train = df_feat[features_list].iloc[:-3]
-                        y_train = df_feat["target"].iloc[:-3]
-                        
-                        # MODELLERİ ANLIK OLARAK EĞİTİYORUZ (Hafızada yoksa çökmesini önler)
-                        models, _ = guvenli_model_yukle()
+                    tavsiye_aksiyon = result.get('exit_strategy_action', result.get('exit_action', 'TUT'))
 
-                        if models is None:
-                            st.stop()
+                    st.markdown(f"""
+                    <div style="
+                        background-color: #1A1A1A; padding: 18px; border-radius: 12px; 
+                        border: 1px solid #2D2D2D; border-top: 4px solid {exit_color}; margin-bottom: 25px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 14px; color: #AAAAAA; font-weight: bold;">🎯 ERKEN ÇIKIŞ & TEPE ANALİZİ</span>
+                            <span style="background-color: {exit_color}; color: #000000; padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: 800;">
+                                TEPE SKORU: %{tepe_skoru}
+                            </span>
+                        </div>
+                        <div style="margin-top: 12px;">
+                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Tepe Bölgesi Durumu:</b> {result.get('tepe_bolgesi_durumu', 'Normal')}</p>
+                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Kâr Koruma Safhası:</b> {result.get('kar_koruma_durumu', 'Tut')}</p>
+                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Zirve Yorgunluğu:</b> {result.get('zirve_yorgunlugu', 'Normal')}</p>
+                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Gün İçi Ekstra Alarm:</b> {result.get('gun_ici_alarm', 'Normal')}</p>
+                        </div>
+                        <div style="margin-top: 12px; padding-top: 8px; border-top: 1px dashed #333; font-size: 15px; font-weight: bold; color: {exit_color};">
+                            👉 Çıkış Aksiyon Tavsiyesi: {tavsiye_aksiyon}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                        xgb_model = models["xgb"]
-                        lgbm_model = models["lgbm"]
-                                                                                                        
-                        # Son günün verisiyle tahmin üretme
-                        proba_xgb = xgb_model.predict_proba(X_live)[:, 1]
-                        proba_lgbm = lgbm_model.predict_proba(X_live)[:, 1]
-
-                        # İki modelin tahminlerinin ortalamasını alıyoruz
-                        ham_proba = proba_xgb * 0.5 + proba_lgbm * 0.5
-
-                        # Scalar / Array Uyumluluk Kontrolü (Hata Çözücü)
-                        if hasattr(ham_proba, "__len__") and len(ham_proba) > 0:
-                            proba = float(np.array(ham_proba).reshape(-1)[0])
-                        else:
-                            proba = float(ham_proba)
-                        
-                        # Proba değerine göre hedef fiyat simülasyonu
-                        potansiyel = (proba - 0.5) * 20
-                        potansiyel = np.clip(potansiyel, -5, 10)
-                        
-                        hedef_fiyat = son_fiyat * (1 + (potansiyel / 100))
-                        
-                        # Grafik için yapay bir tahmin serisi ve güven aralığı (5 Günlük Projeksiyon)
-                        model_tahmini = np.array([
-                            son_fiyat * (1 + (potansiyel / 100) * np.sqrt(i) / 5)
-                            for i in range(1, 6)
-                        ], dtype=float)
-                        
-                        ret = df["Close"].pct_change().dropna()
-                        vol = ret.std() * son_fiyat
-
-                        monte_carlo_sim = []
-                        last = son_fiyat
-
-                        for i in range(1, 6):
-                            noise = np.random.normal(0, vol * 0.2)
-                            last = last * (1 + (potansiyel / 100) / 5) + noise
-                            monte_carlo_sim.append(last)
-
-                        monte_carlo_sim = np.array(monte_carlo_sim, dtype=float)
-                        monte_carlo_sim = np.maximum(monte_carlo_sim, 0.01)
-
-                        tahmin_serisi = 0.7 * model_tahmini + 0.3 * monte_carlo_sim
-                        tahmin_serisi = np.nan_to_num(tahmin_serisi, nan=son_fiyat)
-                        
-                        tahmin_serisi = np.clip(tahmin_serisi, son_fiyat * 0.7, son_fiyat * 1.5)
-                        
-                        alt_sinir = tahmin_serisi * 0.96
-                        ust_sinir = tahmin_serisi * 1.04
-                        
-                    except Exception as model_err:
-                        st.warning(
-                            "⚠️ 'models/ensemble.pkl' bulunamadı veya bozuk! "
-                            "Model sıfırdan eğitiliyor, lütfen bekleyin..."
-                        )
-                        st.error(f"❌ Model hatası: {model_err}")
-
-                        proba = 0.5
-                        hedef_fiyat = son_fiyat
-                        potansiyel = 0.0
-                        tahmin_serisi = None
-                        alt_sinir = None
-                        ust_sinir = None  
-
-                    # fallback 
-                    if tahmin_serisi is None or len(tahmin_serisi) == 0:
-                        tahmin_serisi = np.array([son_fiyat] * 5)
-                        alt_sinir = tahmin_serisi * 0.98
-                        ust_sinir = tahmin_serisi * 1.02             
-                    
-                    # Hacim Onay Kontrolü
-                    hacim_onay = len(df) >= 10 and df["Volume"].iloc[-1] > (df["Volume"].rolling(10).mean().iloc[-1] * 0.8)
-
-                    # RSI & MACD Hesaplamaları
-                    if len(df) >= 30:
-                        df["RSI"] = ta.momentum.rsi(kapanis, window=14)
-                        macd = ta.trend.MACD(kapanis)
-                        rsi_series = df["RSI"].dropna()
-                        son_rsi = float(rsi_series.iloc[-1]) if len(rsi_series) > 0 else 50
-                        
-                        son_m = float(macd.macd().dropna().iloc[-1])
-                        son_ms = float(macd.macd_signal().dropna().iloc[-1])
-                        
-                    # ADX Analizi
-                    if len(df) >= 20:
-                        adx = ta.trend.ADXIndicator(df["High"], df["Low"], df["Close"])
-                        son_adx = adx.adx().iloc[-1]
-                        
-                        if son_adx >= 30:
-                            adx_yorum = "🔥 Çok Güçlü Trend"
-                        elif son_adx >= 20:
-                            adx_yorum = "🟢 Trend Var"
-                        else:
-                            adx_yorum = "⚠️ Zayıf Trend"
-                                                                                                     
-                    # =========================
-                    # MA200 ve MA50 Trend Analizi
-                    # =========================
-                    ma200_kontrolu = len(df) >= 200
-                    trend_confirmed = True  # default
-                    if ma200_kontrolu:
-                        ma200 = float(df["Close"].rolling(200).mean().iloc[-1])
-                        ma50 = float(df["Close"].rolling(50).mean().iloc[-1]) if len(df) >= 50 else None
-                        # -------------------------
-                        # 1. TREND TANIMI
-                        # -------------------------
-                        if ma50 is not None and ma50 > ma200 and son_adx > 25:
-                            trend = "🚀 Güçlü Yükseliş"
-                        elif ma50 is not None and ma50 > ma200:
-                            trend = "🟢 Yükseliş Eğilimi"
-                        elif son_fiyat > ma200:
-                            trend = "🟡 Zayıf Pozitif"
-                        else:
-                            trend = "🔴 Negatif"
-                        trend_gucu = trend
-                        # -------------------------
-                        # 2. TREND VALIDATION (FILTER)
-                        # -------------------------
-                        if son_adx < 20 and son_fiyat < ma200:
-                            trend_confirmed = False
-                    else:
-                        trend = "🟡 Yetersiz Veri (Yeni Arz)"
-                        trend_gucu = "🟡 Veri Yetersiz"
-                    
-                    # Bollinger Bands Analizi
-                    if len(df) >= 20:
-                        bb = ta.volatility.BollingerBands(kapanis)
-                        bb_ust = bb.bollinger_hband().iloc[-1]
-                        bb_alt = bb.bollinger_lband().iloc[-1]
-                        if son_fiyat < bb_alt:
-                            bb_sinyal = "🟢 Aşırı Satım"
-                        elif son_fiyat > bb_ust:
-                            bb_sinyal = "🔴 Aşırı Alım"
-                        else:
-                            bb_sinyal = "🟡 Normal"
-                                              
-                                            
-                    # Hacim Oranı Analizi 
-                    ortalama_hacim = df["Volume"].rolling(20).mean().iloc[-1] if len(df) >= 20 else None
-                        
-                    if pd.notna(ortalama_hacim) and ortalama_hacim > 0:
-                        hacim_orani = df["Volume"].iloc[-1] / ortalama_hacim
-                    else:
-                        hacim_orani = 1
-                    
-                    if hacim_orani > 2:
-                        hacim_yorum = "🚀 Hacim Patlaması"
-                    elif hacim_orani > 1.2:
-                        hacim_yorum = "🟢 Güçlü Hacim"
-                        
-                    # Destek / Direnç Hesaplama
-                    destek = float(df["Low"].tail(20).min()) if len(df) >= 20 else son_fiyat
-                    direnc = float(df["High"].tail(20).max()) if len(df) >= 20 else son_fiyat
-                        
-                    # Risk / Getiri Oranı
-                    risk = son_fiyat - destek
-                    getiri = direnc - son_fiyat
-
-                    rr = None
-                    rr_text = ""
-                    if risk <= 0:
-                        rr = None
-                        rr_text = "Fiyat destek altında / risk hesaplanamaz"
-                    else:
-                        rr = round(getiri / risk, 2)
-                        rr_text = str(rr)
-
-                    # Güven skoru başlangıç şartı (Numeric R/G kontrolü)
-                    if isinstance(rr, (int, float)) and rr > 1.5:
-                        guven_skoru += 10
-                    
-                    # ATR & Stop Loss / Kar Al               
-                    atr = ta.volatility.AverageTrueRange(df["High"], df["Low"], df["Close"], window=14).average_true_range().iloc[-1] if len(df) >= 14 else 0
-                    stop_loss = son_fiyat - (atr * 1.5)
-                    kar_al = son_fiyat + (atr * 3)
-
-                    # ==============================================================
-                    # 2. SKORLAMA VE SİNYAL MOTORLARI (REFACTOR EDİLMİŞ)
-                    # ==============================================================
-                    
-                    # A. Güven Skoru Hesaplama
-                    
-                    momentum_score = 0
-                    # RSI
-                    if son_rsi < 30:
-                        momentum_score += 25
-                    elif son_rsi < 50:
-                        momentum_score += 10
-
-                    # MACD
-                    if son_m > son_ms:
-                        momentum_score += 25
-
-                    # Volume
-                    if hacim_onay:
-                        momentum_score += 15
-
-                    # Trend
-                    if ma200_kontrolu and son_fiyat > ma200:
-                        momentum_score += 20
-
-                    # Risk/Reward
-                    if isinstance(rr, (int, float)) and rr > 1.5:
-                        momentum_score += 10
-                    guven_skoru = min(95, momentum_score)
-
-                    # B. Hisse Karnesi Puanlama
-                    puan += 20 if son_m > son_ms else 0
-                    if son_rsi < 35: puan += 25
-                    elif son_rsi < 50: puan += 15
-                    elif son_rsi < 60: puan += 5
-                    puan += 20 if hacim_onay else -10
-                    if ma200_kontrolu: puan += 20 if son_fiyat > ma200 else -15
-                    puan = max(0, min(100, puan))
-
-                    # C. Smart Money (TEMİZ MODEL - duplicate sinyal yok)
-                    smart_money = 0
-                    # Trend yönü (en önemli sinyal)
-                    if son_m > son_ms:
-                        smart_money += 20
-                    # Hacim akışı (gerçek para girişi)
-                    if hacim_orani > 1.5:
-                        smart_money += 30
-                    elif hacim_orani < 1:
-                        smart_money -= 15
-                    # Kurumsal trend filtresi (MA200)
-                    if ma200_kontrolu:
-                        if son_fiyat > ma200:
-                            smart_money += 20
-                        else:
-                            smart_money -= 15
-                    # Aşırı alım filtresi (smart exit behavior)
-                    if son_rsi > 70:
-                        smart_money -= 10
-                    elif son_rsi < 50:
-                        smart_money += 10
-                    # Final clamp
-                    smart_money = max(0, min(100, smart_money))
-                    
-                    # D. Radar Skoru Hesaplama
-                    radar_puan = puan
-                    if son_adx > 25: radar_puan += 10
-                    if hacim_orani > 1.5: radar_puan += 10
-                    if potansiyel > 10: radar_puan += 10
-                    radar_puan = min(100, radar_puan)
-                    
-                    # E. Başarı Olasılığı Skoru
-                    basari_olasiligi = 0
-
-                    # Momentum
-                    if son_m > son_ms:
-                        basari_olasiligi += 25
-                    # RSI (daha gerçekçi)
-                    if son_rsi < 30:
-                        basari_olasiligi += 20
-                    elif son_rsi < 50:
-                        basari_olasiligi += 10
-                    # Hacim
-                    if hacim_orani > 1.2:
-                        basari_olasiligi += 15
-                    elif hacim_orani < 1:
-                        basari_olasiligi -= 5
-                    # MA200
-                    if ma200_kontrolu:
-                        if son_fiyat > ma200:
-                            basari_olasiligi += 20
-                        else:
-                            basari_olasiligi -= 15
-                    # RR
-                    if isinstance(rr, (int, float)):
-                        if rr > 1.5:
-                            basari_olasiligi += 10
-                        elif rr < 1:
-                            basari_olasiligi -= 10
-                    # EK FİLTRELER
-                    # 6. Trend Gücü (ADX) Kontrolü
-                    if son_adx > 30:
-                        basari_olasiligi += 10
-                    elif son_adx < 20:
-                        basari_olasiligi -= 15
-                                            
-                    if flow_index < -0.10:
-                        basari_olasiligi -= 10
-                    elif flow_index < -0.05:
-                        basari_olasiligi -= 5
-                        
-                    if smart_money < 50:
-                        basari_olasiligi -= 10
-                    basari_olasiligi = max(0, min(100, basari_olasiligi))
-
-                    # F. Yapay Zeka Yorum Motoru
-                    if potansiyel > 10 and puan >= 75:
-                        ai_yorum = "🚀 Güçlü yükseliş potansiyeli"
-                    elif potansiyel > 3 and puan >= 60:
-                        ai_yorum = "👍 Pozitif görünüm"
-                    elif potansiyel > 0:
-                        ai_yorum = "⚠️ Sınırlı yükseliş"
-                    else:
-                        ai_yorum = "🔴 Zayıf görünüm"
-
-                    # G. Nihai Karar Sinyal Mekanizması (Paradoks Çözücü Katman)
-                                   
-                    # =========================
-                    # VOLUME FLOW (CLEAN VERSION)
-                    # =========================
-                    # Price change
-                    df["price_change"] = df["Close"].diff()
-                    # Buy / Sell pressure
-                    df["buy_pressure"] = np.where(df["price_change"] > 0, df["Volume"], 0)
-                    df["sell_pressure"] = np.where(df["price_change"] < 0, df["Volume"], 0)
-
-                    # Volume totals
-                    buy_volume = df["buy_pressure"].sum()
-                    sell_volume = df["sell_pressure"].sum()
-
-                    # FLOW INDEX (NORMALIZED -1 to +1)
-                    flow_index = (buy_volume - sell_volume) / (buy_volume + sell_volume + 1e-9)               
-                   
-                    # =========================
-                    # 2. MARKET REGIME
-                    # =========================
-                    volatilite = df["Close"].pct_change().rolling(10).std().iloc[-1] * 100
-                    trend_market = (son_adx > 20 and ma200_kontrolu and ma200 and son_fiyat > ma200)
-                    sideways_market = son_adx < 18 and volatilite < 1.5
-                    distribution_market = (son_rsi > 70 and flow_index < 0)
-                    accumulation_market = (son_rsi < 45 and flow_index > 0)
-                    market_regime = "UNKNOWN"
-
-                    if trend_market:
-                        market_regime = "TREND"
-                    elif sideways_market:
-                        market_regime = "SIDEWAYS"
-                    elif distribution_market:
-                        market_regime = "DISTRIBUTION"
-                    elif accumulation_market:
-                        market_regime = "ACCUMULATION"
-
-                    # =========================
-                    # 4. NO TRADE FILTER
-                    # =========================
-
-                    trend_yetersiz = son_adx < 15
-                    hacim_dusuk = (buy_volume + sell_volume) > 0 and (buy_volume + sell_volume) < df["Volume"].mean()
-                    akis_stabil = abs(flow_index) < 0.03
-
-                    asiri_alim = son_rsi > 75
-                    trend_celiski = ma200_kontrolu and ma200 and son_fiyat < ma200 and son_rsi > 65
-
-                    if (
-                        (trend_yetersiz and hacim_dusuk and akis_stabil) or
-                        asiri_alim or
-                        trend_celiski
-                    ):
-                        sinyal_metni = "⚪ NO TRADE"
-                        sinyal_rengi = "#808080"
-                        no_trade_aktif = True
-
-                    else:
-                        no_trade_aktif = False
-
-                        # =========================
-                        # 6. FINAL SCORE ENGINE (FIXED & CLEAN)
-                        # =========================
-                        # FLOW SCORE (0-1 normalize)
-                        flow_score = (flow_index + 1) / 2
-                        flow_score = max(0, min(1, flow_score))
-                        
-                        # =========================
-                        # BASE SCORE
-                        # =========================
-                        final_score = (
-                            proba * 0.35 +
-                            (guven_skoru / 100) * 0.20 +
-                            (smart_money / 100) * 0.20 +
-                            flow_score * 0.25
-                        )
-                        # =========================
-                        # TREND / MARKET PENALTIES (TEK KATMAN)
-                        # =========================
-                        # Zayıf trend
-                        if son_adx < 20:
-                            final_score *= 0.85
-                        # Çok zayıf trend (kritik)
-                        if son_adx < 15:
-                            final_score *= 0.75
-                        # Negatif flow + zayıf trend
-                        if son_adx < 20 and flow_index < 0:
-                            final_score *= 0.92
-                        # Trend onayı yoksa
-                        if not trend_confirmed:
-                            final_score *= 0.85
-                        # =========================
-                        # RISK PENALTIES
-                        # =========================
-                        # Düşük hacim
-                        if hacim_orani < 0.7:
-                            final_score *= 0.95
-                        # Aşırı RSI
-                        if son_rsi > 80:
-                            final_score *= 0.90
-                        # =========================
-                        # FINAL CLAMP
-                        # =========================
-                        final_score = max(0, min(1, final_score))
-                        
-                        # SADECE RİSK DURUMUNU CEZALANDIR
-                        if market_regime == "DISTRIBUTION":
-                            final_score *= 0.90
-                        elif market_regime == "SIDEWAYS":
-                            final_score *= 0.95
-                        final_score = max(0, min(1, final_score))
-                        # =========================
-                        # 7. REGIME MULTIPLIER
-                        # =========================
-                        regime_multiplier = 1.0
-
-                        if market_regime == "TREND":
-                            regime_multiplier = 1.10
-                        elif market_regime == "SIDEWAYS":
-                            regime_multiplier = 0.85
-                        elif market_regime == "DISTRIBUTION":
-                            regime_multiplier = 0.70
-                        elif market_regime == "ACCUMULATION":
-                            regime_multiplier = 1.05
-                        elif market_regime == "UNKNOWN":
-                            regime_multiplier = 0.80
-
-                        final_score *= regime_multiplier
-
-                        # =========================
-                        # 9. SIGNAL
-                        # =========================
-
-                        # Sinyal Sınıflandırma
-                        if son_adx < 20 and flow_index < -0.10:
-                            sinyal_metni = "🟡 TUT / İZLE"
-                            sinyal_rengi = "#FFC107"   # Sarı
-                        elif final_score >= 0.80:
-                            sinyal_metni = "🚀 ÇOK GÜÇLÜ AL"
-                            sinyal_rengi = "#00C853"   # Koyu Yeşil
-                        elif final_score >= 0.70:
-                            sinyal_metni = "🟢 AL"
-                            sinyal_rengi = "#4CAF50"   # Yeşil
-                        elif final_score >= 0.65:
-                            sinyal_metni = "🟡 İZLE"
-                            sinyal_rengi = "#FFD600"   # Altın Sarısı
-                        elif final_score >= 0.50:
-                            sinyal_metni = "⚪ NÖTR"
-                            sinyal_rengi = "#90A4AE"   # Gri
-                        else:
-                            sinyal_metni = "🔴 SAT"
-                            sinyal_rengi = "#E53935"   # Kırmızı
-                            
-                    # H. Tahmin Gücü Sınıflandırması
-                    if potansiyel > 15: tahmin_gucu = "🔥 Çok Güçlü"
-                    elif potansiyel > 8: tahmin_gucu = "🚀 Güçlü"
-                    elif potansiyel > 3: tahmin_gucu = "👍 Pozitif"
-                    else: tahmin_gucu = "⚠️ Zayıf"
-
-                    # I. Genel Derece Notu Hesaplama (No Trade Düzeltmeli)
-                    genel_not = (
-                        final_score * 100 * 0.50 +
-                        puan * 0.20 +
-                        guven_skoru * 0.15 +
-                        smart_money * 0.15
-                    )
-                    genel_not = round(genel_not, 1)
-                    st.write("Final Score:", round(final_score * 100, 2))
-                    if no_trade_aktif:
-                        genel_not = genel_not * 0.7  # Kullanıcıyı yanıltmamak için not %30 düşürülür
-                        guven_skoru = min(guven_skoru, 50)  # Güven skoru baskılanır
-                    
-                    if genel_not >= 85: derece = "🏆 A+"
-                    elif genel_not >= 75: derece = "🥇 A"
-                    elif genel_not >= 65: derece = "🥈 B"
-                    elif genel_not >= 50: derece = "🥉 C"
-                    else: derece = "❌ D"
-                    genel_not = round(genel_not, 1)
-
-                    # ==============================================================
-                    # 3. STREAMLIT GÖRSEL ÇIKTI PANELİ
-                    # ==============================================================
-                    st.success(ai_yorum)
-
-                    # 3'lü Bloklar Halinde KPI Panelleri
+                    # =============================================================
+                    # 📊 KPI PANELİ
+                    # =============================================================
                     st.markdown("## 📊 KPI Paneli")
-                                        
-                    k1, k2, k3 = st.columns(3)
-                    with k1: st.metric("Fiyat", f"{son_fiyat:.2f}")
-                    with k2: st.metric("RSI", f"{son_rsi:.1f}")
-                    with k3: st.metric("Potansiyel", f"%{potansiyel:+.2f}")
 
-                    k4, k5, k6 = st.columns(3)
-                    with k4: st.metric("Karne", f"{puan}/100")
-                    with k5: st.metric("Risk/Getiri (R/G)", rr_text)
-                    with k6: st.metric("Güven Skoru", f"%{guven_skoru}")
-                                                                                                                                            
-                    k7, k8, k9 = st.columns(3)
-                    with k7: st.metric("Smart Money", f"{smart_money}/100")
-                    with k8: st.metric("Başarı Olasılığı", f"%{basari_olasiligi}")
-                    with k9: st.metric("Radar Skoru", f"{genel_not:.1f}/100" if isinstance(genel_not, (int, float)) else f"{genel_not}/100")
-                  
-                    
-                    st.markdown("## 📊 Arz / Talep Analizi")
+                    def safe_float(val): return float(val) if val is not None else 0.0
 
                     c1, c2, c3 = st.columns(3)
-                    with c1: st.metric("Alım Hacmi", f"{buy_volume:,.0f}")
-                    with c2: st.metric("Satım Hacmi", f"{sell_volume:,.0f}")
-                    with c3: st.metric("Flow Index", f"%{flow_index*100:.1f}")
-
-                    st.progress(alim_orani / 100)
-
-                    st.write(f"🟢 Alıcı Baskısı: %{alim_orani:.1f}")
-                    st.write(f"🔴 Satıcı Baskısı: %{satim_orani:.1f}")
+                    c1.metric("Fiyat", f"{safe_float(result.get('price')):.2f}")
+                    c2.metric("RSI", f"{safe_float(result.get('rsi')):.1f}")
+                    c3.metric("ADX", f"{safe_float(result.get('adx')):.1f}")
                     
-                    # Gelişmiş Teknik Analiz Bilgi Kutuları
-                    st.markdown("## 📈 Gelişmiş Teknik Analiz")
-                    g1, g2 = st.columns(2)
-                    with g1:
-                        st.info(f"Trend Gücü: {trend_gucu}\n\nADX: {adx_yorum}\n\nBollinger: {bb_sinyal}")
-                    with g2:
-                        st.info(f"Hacim Analizi: {hacim_yorum}\n\nSmart Money: {smart_money}/100\n\nBaşarı Olasılığı: %{basari_olasiligi}")
-                        
-           
-                 
-                    # ==============================================================
-                    # TAHMİN GRAFİĞİ ÇİZİM BLOĞU (BELLEK SIZINTISI & BOYUT HATALARI GİDERİLDİ)
-                    # ==============================================================
+                    c4, c5, c6 = st.columns(3)
+                    c4.metric("Flow", f"%{safe_float(result.get('flow'))*100:.2f}")
+                    c5.metric("Smart Money", f"{safe_float(result.get('smart_money')):.0f}/100")
+                    c6.metric("Güven", f"%{safe_float(result.get('guven_skoru')):.0f}")
 
-                    # =========================
-                    # 1. MODEL + TAHMİN GÜVENLİLEŞTİRME
-                    # =========================
-                    if models is None:
-                        st.warning("Model bulunamadı, basit analiz moduna geçiliyor.")
-                        proba = 0.5
-                        potansiyel = 0
-                        tahmin_serisi = np.array([son_fiyat] * 5, dtype=float)
-                    else:
-                        if tahmin_serisi is None:
-                            tahmin_serisi = np.array([son_fiyat] * 5, dtype=float)
-                        else:
-                            tahmin_serisi = np.array(tahmin_serisi, dtype=float)
-
-                    # NaN temizliği
-                    tahmin_serisi = np.nan_to_num(tahmin_serisi, nan=son_fiyat)
-
-                    alt_sinir = np.nan_to_num(
-                        np.array(alt_sinir, dtype=float) if alt_sinir is not None else tahmin_serisi * 0.98,
-                        nan=son_fiyat * 0.98
-                    )
-
-                    ust_sinir = np.nan_to_num(
-                        np.array(ust_sinir, dtype=float) if ust_sinir is not None else tahmin_serisi * 1.02,
-                        nan=son_fiyat * 1.02
-                    )
-
-
-                    # =========================
-                    # 2. VERİ TEMİZLEME (KRİTİK FIX)
-                    # =========================
-                    kapanis_arr = pd.to_numeric(df["Close"], errors="coerce").dropna()
-
-                    if len(kapanis_arr) == 0:
-                        st.error("❌ Fiyat verisi boş veya bozuk!")
-                        st.stop()
-
-                    son_veri = min(60, len(kapanis_arr))
-                    y_gercek = kapanis_arr.tail(son_veri).to_numpy(dtype=float)
-
-                    if len(y_gercek) == 0:
-                        st.error("❌ Grafik verisi oluşturulamadı!")
-                        st.stop()
-
-                    x_gercek = np.arange(len(y_gercek))
-
-
-                    # =========================
-                    # 3. GRAFİK OLUŞTURMA
-                    # =========================
-                    st.markdown("## 📈 Tahmin Grafiği")
-
-                    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor="#121212")
-                    ax.set_facecolor("#1E1E1E")
-
-                    ax.spines["top"].set_visible(False)
-                    ax.spines["right"].set_visible(False)
-                    ax.spines["left"].set_color("white")
-                    ax.spines["bottom"].set_color("white")
-
-                    ax.set_title(f"{hisse_kodu} Yapay Zeka Tahmini", color="white", fontsize=14)
-                    ax.plot(x_gercek, y_gercek, color="#00F0FF", linewidth=2, label="Gerçek")
-
-
-                    # =========================
-                    # 4. TAHMİN & GÜVEN BANDI BLOĞU (FİNAL FIX)
-                    # =========================
-                    if len(tahmin_serisi) > 0:
-                        # Gerçek verinin son noktasını tahminin başlangıcı yaparak grafikte süreklilik sağlıyoruz
-                        tahmin_y = np.concatenate(([y_gercek[-1]], tahmin_serisi))
-                        
-                        # X eksenini tahmin serisinin uzunluğuna göre dinamik kuruyoruz
-                        x_tahmin = np.arange(len(y_gercek) - 1, len(y_gercek) - 1 + len(tahmin_y))
-
-                        ax.plot(
-                            x_tahmin,
-                            tahmin_y,
-                            "--",
-                            color="#FF00FF",
-                            linewidth=2,
-                            label="Tahmin"
-                        )
-
-                        # =========================
-                        # 5. GÜVEN BANDI ÇİZİMİ
-                        # =========================
-                        if len(alt_sinir) == len(tahmin_serisi) and len(ust_sinir) == len(tahmin_serisi):
-                            base = y_gercek[-1]
-                            alt_band = np.concatenate(([base], alt_sinir))
-                            ust_band = np.concatenate(([base], ust_sinir))
-
-                            # Olası bir boyut uyuşmazlığına karşı güvenli kırpma
-                            min_len = min(len(x_tahmin), len(alt_band), len(ust_band))
-
-                            ax.fill_between(
-                                x_tahmin[:min_len],
-                                alt_band[:min_len].astype(float),
-                                ust_band[:min_len].astype(float),
-                                color="#FF00FF",
-                                alpha=0.15,
-                                label="Güven Aralığı"
-                            )
-                    else:
-                        st.warning("⚠ Tahmin serisi boş!")
-                        
+                    c7, c8, c9 = st.columns(3)
+                    c7.metric("R/R", f"{safe_float(result.get('rr')):.2f}")
+                    c8.metric("Skor", f"{safe_float(result.get('score')):.3f}")
+                    c9.metric("Grade", result.get("grade", "N/A"), help="Hisse performans derecesi")
                     
-                    # =========================
-                    # 6. TEKNİK SEVİYELER VE GÖSTERİM
-                    # =========================
-                    ax.axhline(destek, color="green", linestyle=":", alpha=0.7, label="Destek")
-                    ax.axhline(direnc, color="red", linestyle=":", alpha=0.7, label="Direnç")
-                    ax.axhline(stop_loss, color="orange", linestyle="--", alpha=0.8, label="Stop Loss")
-                    ax.axhline(kar_al, color="lime", linestyle="--", alpha=0.8, label="Kar Al")
-                    
-                  
-                    # Limitleri tahmin serisinin uzunluğuna göre dinamik yapıyoruz (+2 pay bırakarak)
-                    ax.set_xlim(0, len(y_gercek) + len(tahmin_serisi) + 2)
+                    # =============================================================================
+                    # 2. ARZ / TALEP ANALİZİ (Boşluksuz f-string ve net TL ifadeleri yerleştirildi)
+                    # =============================================================================
+                    st.markdown("## 📊 Arz / Talep Analizi")
+                    c10, c11, c12 = st.columns(3)
+                    c10.metric("Alım Hacmi (TL)", f"{safe_float(result.get('buy_volume')):,.0f} ₺")
+                    c11.metric("Satım Hacmi (TL)", f"{safe_float(result.get('sell_volume')):,.0f} ₺")
+                    c12.metric("Flow Index", f"{safe_float(result.get('flow')):.3f}")
 
-                    ax.tick_params(colors="white")
-                    ax.grid(True, color="#2D2D2D")
-                    ax.set_ylabel("Fiyat (TL)", color="white")
-                    ax.set_xlabel("Gün", color="white")
-                    ax.legend(loc="upper left")
-
-                    fig.tight_layout()
-
-                    # Streamlit çıktısı ve bellek temizliği
-                    st.pyplot(fig, clear_figure=True)
-                    plt.close(fig)
-
-                    # =========================
-                    # 8. DEBUG PANEL (CLEAN)
-                    # =========================
-                    if st.checkbox("Debug bilgileri"):
-                        st.write("tahmin_serisi (ilk 5):", tahmin_serisi[:5])
-                        st.write("alt_sinir (ilk 5):", alt_sinir[:5])
-                        st.write("ust_sinir (ilk 5):", ust_sinir[:5])
-                        st.write("kapanis_arr len:", len(kapanis_arr))
-                        st.write("y_gercek len:", len(y_gercek))
-                        st.write("y_gercek min:", float(np.min(y_gercek)))
-                        st.write("y_gercek max:", float(np.max(y_gercek)))
-                        st.write("X_live shape:", X_live.shape)
-                        st.write("DEBUG tahmin_serisi:", str(tahmin_serisi))
-                        st.write("TYPE:", str(type(tahmin_serisi)))
-                        st.write("LEN:", len(tahmin_serisi) if tahmin_serisi is not None else "None")
-
-
-                    # Destek & Direnç Metrikleri Panel Gösterimi
-                    st.markdown("## 🎯 Destek / Direnç")
-                    d1, d2, d3 = st.columns(3)
-                    with d1: st.metric("Destek", f"{destek:.2f}")
-                    with d2: st.metric("Fiyat", f"{son_fiyat:.2f}")
-                    with d3: st.metric("Direnç", f"{direnc:.2f}")
-
-                    # Yapay Zeka Özet Kartı
-                    st.markdown("## 🤖 Yapay Zeka Tahmini")
-                    st.info(f"""
-                    Hedef Fiyat: {hedef_fiyat:.2f} TL
-                    Potansiyel: %{potansiyel:+.2f}
-                    Stop Loss: {stop_loss:.2f} TL
-                    Kar Al: {kar_al:.2f} TL
-                    Risk/Getiri: {rr_text}
-                    Tahmin Gücü: {tahmin_gucu}
-                    """)
-
-                    # Teknik Özet Listesi
-                    st.markdown("## 📋 Teknik Özet")
-                    yorumlar = [
-                        f"Trend Durumu: {trend_gucu}", 
-                        f"Stop Loss: {stop_loss:.2f}", 
-                        f"Kar Al: {kar_al:.2f}", 
-                        f"Hisse Karnesi: {puan}/100", 
-                        f"Risk/Getiri Oranı: {rr_text}"
-                    ]
-                    for y in yorumlar: 
-                        st.write("•", y)
-
-                    # Nihai Karar Renkli Sinyal Kutusu
-                    st.markdown("## 🚦 Nihai Karar")
+                    st.markdown("---")
                     st.markdown(f"""
-                        <div style="background:{sinyal_rengi}; padding:20px; border-radius:12px; text-align:center; font-size:26px; font-weight:bold; color:white;">
-                            {sinyal_metni}
-                        </div>
-                        """, unsafe_allow_html=True)
+                    🟢 **Alıcı Baskısı:** %{safe_float(result.get('buy_pressure'))*100:.1f}  
+                    🔴 **Satıcı Baskısı:** %{safe_float(result.get('sell_pressure'))*100:.1f}
+                    """)
 
-                    # Genel Not Gösterimi
-                    st.markdown("## 🎖️ Genel Değerlendirme")
-                    st.markdown(f"### {derece}  \n📊 Skor: **{genel_not}/100**")
-
-                    # Güven Skoru İlerleme Çubuğu
-                    st.markdown("## ⭐ Güven Skoru")
-                    st.progress(float(guven_skoru) / 100)
-                    st.markdown(f"<h3 style='text-align:center'>%{guven_skoru}</h3>", unsafe_allow_html=True)
-
-                else:
-                    st.warning("Hisse verisi boş döndü. Doğru sembol girdiğinizden emin olun.")
-
-            except Exception as e:
-                st.error(f"Analiz sırasında beklenmeyen bir hata oluştu: {e}")
-                
-               
-        
-               
-###################################################################################################################################################
-
-###################################################################################################################################################
-         
-    # --- 3. SEKME: MEGA RADAR ---
-    with sekme3:
-        st.subheader("📊 PRO TRADE v2 (Trade Management System)")
-
-        col1, col2 = st.columns(2)
-        risk_pct = col1.slider("İşlem başı risk %", 0.5, 5.0, 1.0)
-        sadece_guclu = col2.checkbox("Sadece kaliteli trade (80+)", value=True)
-
-        if st.button("🚀 PRO TRADE v2 BAŞLAT", key="pro_trade_v2"):
-
-            
-
-            hisseler = dinamik_bist_listesi_yukle()
-
-            results = []
-            max_trades_per_day = 5
-            trade_count = 0
-
-            progress = st.progress(0)
-            status = st.empty()
-
-            def get_data(symbol):
-                try:
-                    df = yf.download(symbol, period="300d", interval="1d", progress=False)
-                    if df is None or df.empty:
-                        return None
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.droplevel(1)
-                    return df.dropna()
-                except:
-                    return None
-
-            for i, h in enumerate(hisseler):
-
-                status.write(f"Taranıyor: {h}")
-                progress.progress((i+1)/len(hisseler))
-
-                if trade_count >= max_trades_per_day:
-                    break
-
-                df = get_data(h + ".IS")
-                if df is None or len(df) < 200:
-                    continue
-
-                close = df["Close"].astype(float)
-                high = df["High"].astype(float)
-                low = df["Low"].astype(float)
-                volume = df["Volume"].astype(float)
-
-                try:
-                    # ======================
-                    # INDICATORS
-                    # ======================
-                    rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
-
-                    ma50 = close.rolling(50).mean().iloc[-1]
-                    ma200 = close.rolling(200).mean().iloc[-1]
-
-                    trend_up = ma50 > ma200
-
-                    vol_avg = volume.rolling(20).mean().iloc[-1]
-                    vol_ok = volume.iloc[-1] > vol_avg * 1.2
-
-                    rsi_ok = 35 < rsi < 50
-
-                    entry_signal = trend_up and rsi_ok and vol_ok
-
-                    if not entry_signal:
-                        continue
-
-                    # ======================
-                    # PRICE + RISK MODEL
-                    # ======================
-                    price = close.iloc[-1]
-
-                    atr = ta.volatility.AverageTrueRange(
-                        high, low, close, window=14
-                    ).average_true_range().iloc[-1]
-
-                    stop_loss = price - (atr * 1.5)
-                    take_profit = price + (atr * 3)
-
-                    risk = price - stop_loss
-                    reward = take_profit - price
-
-                    rr = reward / risk if risk != 0 else 0
-
-                    # ======================
-                    # POSITION SIZE (RISK MODEL)
-                    # ======================
-                    capital = 10000  # varsayım
-                    risk_amount = capital * (risk_pct / 100)
-
-                    position_size = risk_amount / risk if risk != 0 else 0
-
-                    # ======================
-                    # TRADE QUALITY SCORE
-                    # ======================
-                    score = 0
-
-                    if trend_up:
-                        score += 30
-
-                    if rsi_ok:
-                        score += 20
-
-                    if vol_ok:
-                        score += 20
-
-                    score += min(rr * 15, 25)
-
-                    # ======================
-                    # FILTERS
-                    # ======================
-                    if sadece_guclu and score < 80:
-                        continue
-
-                    if rr < 1.5:
-                        continue
-
-                    # ======================
-                    # ADD TRADE
-                    # ======================
-                    results.append({
-                        "hisse": h,
-                        "price": price,
-                        "sl": stop_loss,
-                        "tp": take_profit,
-                        "rr": rr,
-                        "score": score,
-                        "position_size": position_size
-                    })
-
-                    trade_count += 1
-
-                except:
-                    continue
-           
-            # ======================
-            # SORT
-            # ======================
-            results = sorted(results, key=lambda x: x["score"], reverse=True)
-
-            status.text("Tarama tamamlandı!")
-            progress.empty()
-            
-            
-
-            # ======================
-            # OUTPUT
-            # ======================
-            if not results:
-                st.warning("Uygun trade bulunamadı.")
-            else:
-                st.success(f"{len(results)} kaliteli trade bulundu")
-
-                for r in results:
-                    st.markdown(f"## 🔹 {r['hisse']} | Score: {r['score']}/100")
-
-                    st.write(f"""
-                    - 💰 Entry: {r['price']:.2f}
-                    - 🛑 Stop Loss: {r['sl']:.2f}
-                    - 🎯 Take Profit: {r['tp']:.2f}
-                    - 📊 R/R: {r['rr']:.2f}
-                    - 📦 Position Size: {r['position_size']:.2f} lot (simülasyon)
+                    # =============================================================
+                    # 🚦 SIGNAL BOX
+                    # =============================================================
+                    st.markdown("## 🚦 Sinyal")
+                    st.markdown(f"""
+                    <div style="
+                        background:{result.get('color', '#333')}; padding:18px; border-radius:12px;
+                        text-align:center; font-size:30px; font-weight:800; color:white;">
+                        {result.get('signal', 'SİNYAL YOK')}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # =============================================================
+                    # 🤖 AI RAPORU VE PİYASA REJİMİ
+                    # =============================================================
+                    st.markdown("### 🤖 Yapay Zeka Strateji Raporu")
+                    st.info(result.get('ai_comment', 'Yorum bulunamadı.'))
+                    st.markdown(f"🎯 **Stratejik Aksiyon:** `{result.get('strategy_action', 'TUT')}`")
+                    st.markdown("---")
+                    
+                    st.markdown("## 📌 Piyasa Rejimi")
+                    st.markdown(f"""
+                    🧭 **Rejim:** {result.get('regime', 'Bilinmiyor')}  
+                    📉 **Destek:** {safe_float(result.get('destek')):.2f}  
+                    📈 **Direnç:** {safe_float(result.get('direnc')):.2f}
                     """)
                     
-    with sekme4:
-        st.subheader("📊 Sade Profesyonel Trade Sistemi")
+                    # =============================================================
+                    # 📈 GRAFİK VE ÖZET
+                    # =============================================================
+                    st.markdown("## 📈 Teknik Grafik")
+                    fig = create_technical_chart(df_st, result)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
 
-        col1, col2 = st.columns(2)
-        sadece_guclu = col1.checkbox("Sadece güçlü işlemler (R:R > 1.5)", value=True)
-        hacim_filtresi = col2.checkbox("Hacim filtresi", value=True)
-
-        if st.button("🚀 TRADE TARAMA BAŞLAT", key="trade_system"):
-
-            import numpy as np
-            import ta
-       
-            hisseler = dinamik_bist_listesi_yukle()
-            results = []
-
-            progress = st.progress(0)
-            status = st.empty()
-
-            def get_data(symbol):
-                try:
-                    df = yf.download(symbol, period="250d", interval="1d", progress=False)
-                    if df is None or df.empty:
-                        return None
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.droplevel(1)
-                    return df.dropna()
-                except:
-                    return None
-
-            for i, h in enumerate(hisseler):
-
-                status.write(f"Taranıyor: {h}")
-                progress.progress((i+1)/len(hisseler))
-
-                df = get_data(h + ".IS")
-                if df is None or len(df) < 200:
-                    continue
-
-                close = df["Close"].astype(float)
-                high = df["High"].astype(float)
-                low = df["Low"].astype(float)
-                volume = df["Volume"].astype(float)
-
-                try:
-                    # =========================
-                    # INDICATORS
-                    # =========================
-                    rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
-
-                    ma50 = close.rolling(50).mean().iloc[-1]
-                    ma200 = close.rolling(200).mean().iloc[-1]
-
-                    trend_up = ma50 > ma200
-
-                    vol_avg = volume.rolling(20).mean().iloc[-1]
-                    vol_ok = volume.iloc[-1] > vol_avg * 1.1
-
-                    rsi_ok = 30 < rsi < 50
-
-                    # =========================
-                    # ENTRY CONDITION
-                    # =========================
-                    entry_signal = trend_up and rsi_ok
-
-                    if not entry_signal:
-                        continue
-
-                    # =========================
-                    # TRADE LEVELS
-                    # =========================
-                    last_price = close.iloc[-1]
-
-                    atr = ta.volatility.AverageTrueRange(
-                        high, low, close, window=14
-                    ).average_true_range().iloc[-1]
-
-                    stop_loss = last_price - (atr * 1.5)
-                    take_profit = last_price + (atr * 3)
-
-                    risk = last_price - stop_loss
-                    reward = take_profit - last_price
-
-                    rr_ratio = reward / risk if risk != 0 else 0
-
-                    # =========================
-                    # FILTER
-                    # =========================
-                    if hacim_filtresi and not vol_ok:
-                        continue
-
-                    if sadece_guclu and rr_ratio < 1.5:
-                        continue
-
-                    results.append((
-                        h,
-                        last_price,
-                        stop_loss,
-                        take_profit,
-                        rr_ratio,
-                        rsi,
-                        trend_up
-                    ))
-
-                except:
-                    continue
-
-            # =========================
-            # SORT
-            # =========================
-            results = sorted(results, key=lambda x: x[4], reverse=True)
-
-            status.text("Tarama tamamlandı!")
-            progress.empty()
-
-            # =========================
-            # OUTPUT
-            # =========================
-            if not results:
-                st.warning("Uygun trade fırsatı bulunamadı.")
-            else:
-                st.success(f"{len(results)} trade fırsatı bulundu")
-
-                for r in results:
-                    h, price, sl, tp, rr, rsi, trend = r
-
-                    st.markdown(f"## 🔹 {h}")
-
-                    st.write(f"""
-                    - 💰 Entry: {price:.2f}
-                    - 🛑 Stop Loss: {sl:.2f}
-                    - 🎯 Take Profit: {tp:.2f}
-                    - 📊 R/R Ratio: {rr:.2f}
-                    - RSI: {rsi:.2f}
-                    - Trend: {'UP' if trend else 'DOWN'}
-                    """)  
-    with sekme5:
-        st.subheader("🤖 REAL AI TRADING SYSTEM (Tam Piyasa Taraması)")
-        st.markdown("<span style='color:#00F0FF; font-size:14px;'>Random Forest algoritması son 1 yıllık teknik veriyi öğrenerek bir sonraki günün yönünü tahmin eder. BIST'teki tüm hisseler taranacaktır.</span>", unsafe_allow_html=True)
-
-        if st.button("🚀 AI MODELİNİ TÜM PİYASA İÇİN ÇALIŞTIR", key="run_ai_btn_full"):
-            
-          
-            import pandas as pd
-            import ta
-
-            hisseler = dinamik_bist_listesi_yukle()
-            
-            if not hisseler:
-                st.error("⚠️ Hisse listesi yüklenemedi!")
-            else:
-                st.warning(f"⚠️ DİKKAT: BIST'teki tüm hisseler ({len(hisseler)} adet) taranıyor. Bu işlem işlemci hızına bağlı olarak 10-15 dakika sürebilir. Lütfen işlem bitene kadar sekmeyi kapatmayın veya yenilemeyin!")
-                
-                # 1. Hızlı Veri İndirme (Toplu - Tüm Piyasa)
-                semboller = [f"{h}.IS" for h in hisseler]
-                toplu_veri = yf.download(semboller, period="1y", interval="1d", progress=False)
-
-                results = []
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                # 2. Yapay Zeka Modeli Eğitimi ve Tahmin Döngüsü
-                for i, h in enumerate(hisseler):
-                    sembol = f"{h}.IS"
-                    status_text.text(f"🧠 Model Eğitiliyor: {h} ({i+1}/{len(hisseler)})")
-                    progress_bar.progress((i + 1) / len(hisseler))
+                    st.markdown("## 📋 Teknik Özet")
+                    st.write(f"• Trend Durumu: {result.get('trend_text', 'Bilinmiyor')}")
+                    st.write(f"• Stop Loss: {safe_float(result.get('stop_loss')):.2f}")
+                    st.write(f"• Kar Al: {safe_float(result.get('take_profit')):.2f}")
+                    st.write(f"• Hisse Karnesi: {safe_float(result.get('stock_score')):.0f}/100")
+                    st.write(f"• Risk/Getiri Oranı: {safe_float(result.get('rr')):.2f}")
                     
-                    try:
-                        # Toplu veriden tekil hisseyi ayıkla
-                        if len(semboller) > 1:
-                            df = toplu_veri.xs(sembol, level=1, axis=1).dropna()
-                        else:
-                            df = toplu_veri.dropna()
-                            
-                        if len(df) < 100:  # AI eğitimi için minimum veri şartı
-                            continue
+                    if not df_st.empty:
+                        st.write("DATA AGE (SON BAR):", df_st.index[-1])
+                        st.write("CURRENT ROW COUNT:", len(df_st))
+                        st.write("LAST CLOSE:", df_st["Close"].iloc[-1])
 
-                        # --- FEATURE ENGINEERING (Özellik Çıkarımı) ---
-                        df['RSI'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
-                        macd = ta.trend.MACD(df['Close'])
-                        df['MACD'] = macd.macd()
-                        df['MACD_Diff'] = macd.macd_diff()
-                        df['Return'] = df['Close'].pct_change()
-                        
-                        # Hedef Değişken (Target): Bir sonraki günün kapanışı bugünden yüksekse 1, değilse 0
-                        df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-                        df = df.dropna()
-                        
-                        # --- MAKİNE ÖĞRENMESİ (Eğitim ve Test) ---
-                        X = df[['RSI', 'MACD', 'MACD_Diff', 'Return']].iloc[:-1]
-                        y = df['Target'].iloc[:-1]
-                        X_tahmin = df[['RSI', 'MACD', 'MACD_Diff', 'Return']].iloc[-1:]
-                        
-                        # Modeli kur ve eğit
-                        model = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=5)
-                        model.fit(X, y)
-                        
-                        # Yarın için Yükseliş İhtimalini hesapla
-                        yukselis_ihtimali = model.predict_proba(X_tahmin)[0][1]
-                        
-                        # Sadece kazanma ihtimali %65'ten büyük olanları filtrele
-                        if yukselis_ihtimali > 0.65:
-                            last_price = df['Close'].iloc[-1]
-                            
-                            atr = ta.volatility.AverageTrueRange(df['High'], df['Low'], df['Close'], window=14).average_true_range().iloc[-1]
-                            stop_loss = last_price - (atr * 1.5)
-                            take_profit = last_price + (atr * 3)
-                            
-                            results.append({
-                                "Hisse": h,
-                                "AI Yükseliş İhtimali": yukselis_ihtimali,
-                                "Giriş (Entry)": last_price,
-                                "Stop Loss": stop_loss,
-                                "Take Profit": take_profit
-                            })
-                            
-                    except KeyError:
-                        continue
-                    except Exception as e:
-                        continue
-                        
-                status_text.text("✅ Tüm Piyasa Yapay Zeka Analizi Tamamlandı!")
-                progress_bar.empty()
-
-                # 3. Sonuçları Tabloya Bas
-                if not results:
-                    st.warning("⚠️ Yapay Zeka tüm piyasayı taradı ancak şu anki piyasa koşullarında yeterince güçlü bir 'AL' sinyali bulamadı.")
-                else:
-                    st.success(f"🤖 Yapay Zeka {len(hisseler)} hisse içinden {len(results)} adet yüksek ihtimalli fırsat yakaladı!")
-                    
-                    df_ai_sonuc = pd.DataFrame(results)
-                    df_ai_sonuc = df_ai_sonuc.sort_values(by="AI Yükseliş İhtimali", ascending=False).reset_index(drop=True)
-                    
-                    st.dataframe(
-                        df_ai_sonuc.style.format({
-                            "AI Yükseliş İhtimali": "{:.1%}",
-                            "Giriş (Entry)": "{:.2f} ₺",
-                            "Stop Loss": "{:.2f} ₺",
-                            "Take Profit": "{:.2f} ₺"
-                        }).background_gradient(subset=["AI Yükseliş İhtimali"], cmap="Greens"),
-                        use_container_width=True
-                    )
-                    
-                    
-                    
-                    st.pyplot(fig)
-            
+                    # =============================================================
+                    # 🛠️ DEBUG PANELİ
+                    # =============================================================
+                    if st.checkbox("Debug"):
+                        st.json(result)
