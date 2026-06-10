@@ -1609,7 +1609,7 @@ if IS_STREAMLIT:
                     # =============================================================
                     # ⏱️ CANLI GÜNCELLENME SAATİ
                     # =============================================================
-                    su_an = datetime.now().strftime("%H:%M:%S")
+                    su_an = datetime.now(ZoneInfo("Europe/Istanbul")).strftime("%H:%M:%S")
                     st.markdown(f"""
                     <div style="
                         background-color: #1E1E1E; padding: 10px; border-radius: 8px; 
