@@ -1494,8 +1494,6 @@ if IS_STREAMLIT:
     st.title("🖥️ Borsa")
     st.caption(f"⏱️ Canlı takip tablosu 60 saniyede bir otomatik güncellenir. Son Yenilenme: {pd.Timestamp.now().strftime('%H:%M:%S')}")
 
-    db = Veritabani()
-
     if "menü_aktif_hisse" not in st.session_state:
         st.session_state["menü_aktif_hisse"] = None
     if "grafik_goster" not in st.session_state:
