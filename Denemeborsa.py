@@ -37,6 +37,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
+import time
 
 
 
@@ -129,6 +130,9 @@ def _clean_yfinance_df(df):
         
     return df
 
+# =========================================================================
+# 📊 DATA VERİ ÇEKME VE ÖNBELLEK KATMANI (STREAMLIT & SCRIPT UYUMU)
+# =========================================================================
 if IS_STREAMLIT:
     @st.cache_data(ttl=60)
     def get_live_data(symbol: str, period="1d", interval="5m"):
@@ -148,8 +152,16 @@ else:
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
 
+
+# =========================================================================
+# 🧠 YAPAY ZEKA MODEL YÜKLEME KATMANI (MOBİL RAM DOSTU ÖNBELLEK)
+# =========================================================================
 @st.cache_resource(show_spinner=False)
 def load_model() -> dict | None:
+    """
+    Modeli RAM üzerinde sadece 1 kez yükler. 
+    Mobil tarayıcılarda sayfa her yenilendiğinde çökme yaşanmasını engeller.
+    """
     if not os.path.isfile(MODEL_PATH):
         return None
     try:
@@ -159,6 +171,25 @@ def load_model() -> dict | None:
         return model
     except Exception:
         return None
+
+# Yapay zeka modelini güvenli önbellekten değişkene aktarıyoruz
+model = load_model()
+
+# =========================================================================
+# ⏱️ DİNAMİK CANLI YENİLENME MOTORU (DOSYANIN EN SON SATIRI OLMALIDIR)
+# =========================================================================
+# Ekrandaki tüm tablolar, grafikler ve metinler çizildikten sonra en alta çalışır.
+
+if model is None:
+    st.error("⚠️ Yapay zeka modeli sistemden yüklenemedi! Sistem otomatik olarak 'Teknik Analiz & Güvenli Mod' ile çalışıyor.")
+
+# Mobil tarayıcı bağlantısını koparmadan 60 saniye güvenli bekleme uygular
+time.sleep(60)
+
+# Sayfayı yukarıdan aşağıya kayıpsız ve taze verilerle yeniden tetikler
+st.rerun()
+
+
 
 # ==============================================================================
 # 🛠️ GÜVENLİK VE GECİCİ KORUMA MOTORLARI (EKSİK FONKSİYONLAR İÇİN)
