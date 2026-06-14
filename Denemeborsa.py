@@ -1554,10 +1554,16 @@ def analyze(df, model, features, symbol="THYAO"):
         st.write(f"2. Adım: Temizlik sonrası ilk ham kapanış fiyatı: `{df['close'].iloc[-1]}`")
 
         # -------------------------------------------------------------------------
-        # 🚨 KRİTİK EŞİK: PREPARE DATA KONTROLÜ
+        # 🚨 KRİTİK EŞİK: PREPARE DATA KONTROLÜ (MOBİL GÜVENLİ HALE GETİRİLDİ)
         # -------------------------------------------------------------------------
         try:
-            df, features = _prepare_data(df, features, model)
+            # 🛡️ MODEL YOKSA PREPARE DATA'NIN VERİYİ SIFIRLAMASINI ENGELLİYORUZ
+            if model is None:
+                st.warning("⚠️ Yapay zeka modeli yüklenemediği için teknik analiz tabanlı 'Güvenli Mod' aktif edildi.")
+                features = [f.lower() for f in features]
+            else:
+                df, features = _prepare_data(df, features, model)
+                
             if df is None or df.empty:
                 st.error("❌ HATA: `_prepare_data` fonksiyonu veri setini tamamen sıfırladı/boşalttı!")
                 return _get_empty_result()
@@ -1577,9 +1583,6 @@ def analyze(df, model, features, symbol="THYAO"):
         # Eğer son satır NaN (boşluk) ürettiyse önceki satırlarla dolduruyoruz (Sıfırlanma Önleyici)
         df = df.ffill().bfill()
         
-        
-        
-
         # -------------------------------------------------------------------------
         # 2. LIVE PRICE (Canlı Fiyat Entegrasyonu)
         # -------------------------------------------------------------------------
@@ -1619,7 +1622,7 @@ def analyze(df, model, features, symbol="THYAO"):
         st.metric(label="5. Adım: Analize Giren Net Kapanış Fiyatı", value=f"{close} ₺")
         base_last = df.iloc[-1].copy()
 
-        # 🌟 ZIRH KODUNU TAM BURAYA, BASE_LAST'IN HEMEN ALTINA YAPIŞTIR:
+        # 🌟 ZIRH KODU
         clean_last_dict = {}
         for col in list(df.columns):
             col_lower = str(col).lower().strip()
@@ -1681,7 +1684,6 @@ def analyze(df, model, features, symbol="THYAO"):
         # -------------------------------------------------------------------------
         # 4. INDICATORS (Güvenli Hesaplama Katmanı)
         # -------------------------------------------------------------------------
-     
         try:
             # Sütunları küçük harfe zorla çağırdığımızdan emin ol
             adx_series = ta.trend.ADXIndicator(
@@ -1694,6 +1696,7 @@ def analyze(df, model, features, symbol="THYAO"):
         except Exception as e:
             adx = 25.0
             rsi = 50.0
+
     # -------------------------------------------------------------------------
     # 4.5 SÜTUN UYUMSUZLUK KÖPRÜSÜ (GÜVENLİ VERSİYON)
     # -------------------------------------------------------------------------
@@ -1701,7 +1704,6 @@ def analyze(df, model, features, symbol="THYAO"):
     df = df.loc[:, ~df.columns.duplicated()]
 
     # Alt fonksiyonlar hem küçük hem büyük harf arayabilsin diye sözlükle eşliyoruz
-    # Tablodaki mevcut sütunların Capitalize (İlk harfi büyük) versiyonlarını klonluyoruz
     existing_cols = list(df.columns)
     for col in existing_cols:
         cap_col = str(col).capitalize().strip()
@@ -1742,8 +1744,6 @@ def analyze(df, model, features, symbol="THYAO"):
     signal = engine.get("sinyal", "BEKLE").replace("NEUTRAL", "BEKLE").replace("⚪ BEKLE", "BEKLE")
     color = "#90A4AE"
     
-    
-
     # -------------------------------------------------------------------------
     # 8. FINAL MAPPING & OUTPUT
     # -------------------------------------------------------------------------
@@ -1766,8 +1766,6 @@ def analyze(df, model, features, symbol="THYAO"):
         ma50=float(base_last.get("ma50", close)),
         gunluk_getiri=gunluk_getiri, direnc=float(direnc), destek=float(destek)
     )
-
-    # [Buradaki mükerrer veya ara result atamasını temizleyip doğrudan ana sözlüğe geçiyoruz]
 
     # MACD hesaplaması (Yoksa ekle ki grafik hata vermesin)
     if 'macd' not in df.columns:
@@ -1803,7 +1801,6 @@ def analyze(df, model, features, symbol="THYAO"):
     # =============================================================
     # 🧠 🚀 KURŞUN GEÇİRMEZ KARAR FİLTRESİ & STRATEJİ KÖPRÜSÜ
     # =============================================================
-    # .get() kullanarak None veya KeyError risklerini tamamen sıfırlıyoruz
     suni_durum = str(result.get("suni_hareket", "")).upper()
     str_signal = str(result.get("signal", "")).upper()
     current_grade = str(result.get("grade", ""))
@@ -1814,6 +1811,7 @@ def analyze(df, model, features, symbol="THYAO"):
         result["signal"] = "BEKLE / İZLE"
         result["trend_text"] = "⚠️ Suni Baskı Altında"
         result["ai_comment"] = "⚠️ DİKKAT: Yapay zeka suni bir yükseliş (tuzak) tespit etti. Strateji koruma moduna alındı."
+        result["kar_koruma_durumu"] = "🟡 Karı Koru (Kademeli Azalt / Yakın Stop)"
 
     elif "SAT" in str_signal:
         result["exit_strategy_action"] = "STOP / NAKİTE GEÇ"
