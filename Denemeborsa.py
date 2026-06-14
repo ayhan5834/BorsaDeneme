@@ -1641,20 +1641,28 @@ def analyze(df, model, features, symbol="THYAO"):
         base_last = clean_last_dict
 
         # -------------------------------------------------------------------------
-        # 3. MODEL PREDICTION (XGBoost & LightGBM Ensemble)
+        # 3. MODEL PREDICTION (XGBoost & LightGBM Ensemble) - SAFE VERSION
         # -------------------------------------------------------------------------
         proba = 0.5
         try:
             valid_features = [f for f in features if f in df.columns]
-            if len(valid_features) == len(features):
+            
+            # 🛡️ GÜVENLİK DUVARI: Model hiç yüklenemediyse (None ise) veya sözlük değilse tahminleme adımlarını güvenle atla
+            if model is None or not isinstance(model, dict):
+                proba = 0.5 # Model yoksa çökme yaşatmamak için nötr (50%) olasılık atıyoruz
+                
+            elif len(valid_features) == len(features):
                 X = df[features].iloc[-1:].values
                 probs = []
-                xgb_model = model.get("xgb", None) if isinstance(model, dict) else None
+                
+                # Model geçerliyse xgb kontrolü yapılıyor
+                xgb_model = model.get("xgb", None)
                 if xgb_model is not None and hasattr(xgb_model, "predict_proba"):
                     try: comps = xgb_model.predict_proba(X); probs.append(float(comps[0][1]))
                     except Exception: pass
 
-                lgbm_model = model.get("lgbm", None) if isinstance(model, dict) else None
+                # Model geçerliyse lgbm kontrolü yapılıyor
+                lgbm_model = model.get("lgbm", None)
                 if lgbm_model is not None and hasattr(lgbm_model, "predict_proba"):
                     try: comps = lgbm_model.predict_proba(X); probs.append(float(comps[0][1]))
                     except Exception: pass
@@ -1666,6 +1674,8 @@ def analyze(df, model, features, symbol="THYAO"):
         except Exception:
             proba = 0.5
 
+        # numpy'ın import edildiğinden emin olalım (Hata riskine karşı kalkan)
+        import numpy as np
         proba = float(np.clip(proba, 0.05, 0.95))
 
         # -------------------------------------------------------------------------
