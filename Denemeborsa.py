@@ -37,7 +37,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
-import time
+
 
 
 
@@ -130,9 +130,6 @@ def _clean_yfinance_df(df):
         
     return df
 
-# =========================================================================
-# 📊 DATA VERİ ÇEKME VE ÖNBELLEK KATMANI (STREAMLIT & SCRIPT UYUMU)
-# =========================================================================
 if IS_STREAMLIT:
     @st.cache_data(ttl=60)
     def get_live_data(symbol: str, period="1d", interval="5m"):
@@ -152,16 +149,8 @@ else:
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
 
-
-# =========================================================================
-# 🧠 YAPAY ZEKA MODEL YÜKLEME KATMANI (MOBİL RAM DOSTU ÖNBELLEK)
-# =========================================================================
 @st.cache_resource(show_spinner=False)
 def load_model() -> dict | None:
-    """
-    Modeli RAM üzerinde sadece 1 kez yükler. 
-    Mobil tarayıcılarda sayfa her yenilendiğinde çökme yaşanmasını engeller.
-    """
     if not os.path.isfile(MODEL_PATH):
         return None
     try:
@@ -171,23 +160,6 @@ def load_model() -> dict | None:
         return model
     except Exception:
         return None
-
-# Yapay zeka modelini güvenli önbellekten değişkene aktarıyoruz
-model = load_model()
-
-# =========================================================================
-# ⏱️ DİNAMİK CANLI YENİLENME MOTORU (DOSYANIN EN SON SATIRI OLMALIDIR)
-# =========================================================================
-# Ekrandaki tüm tablolar, grafikler ve metinler çizildikten sonra en alta çalışır.
-
-# Dosyanın en son satırı:
-if model is None:
-    st.info("ℹ️ Güvenli Mod Aktif: Yapay zeka modeli yüklenemediği için skorlamalar teknik indikatörler üzerinden hesaplanmaktadır. Verileriniz canlı ve günceldir.")
-
-time.sleep(60)
-
-# Sayfayı yukarıdan aşağıya kayıpsız ve taze verilerle yeniden tetikler
-st.rerun()
 
 
 
@@ -1554,16 +1526,10 @@ def analyze(df, model, features, symbol="THYAO"):
         st.write(f"2. Adım: Temizlik sonrası ilk ham kapanış fiyatı: `{df['close'].iloc[-1]}`")
 
         # -------------------------------------------------------------------------
-        # 🚨 KRİTİK EŞİK: PREPARE DATA KONTROLÜ (MOBİL GÜVENLİ HALE GETİRİLDİ)
+        # 🚨 KRİTİK EŞİK: PREPARE DATA KONTROLÜ
         # -------------------------------------------------------------------------
         try:
-            # 🛡️ MODEL YOKSA PREPARE DATA'NIN VERİYİ SIFIRLAMASINI ENGELLİYORUZ
-            if model is None:
-                st.warning("⚠️ Yapay zeka modeli yüklenemediği için teknik analiz tabanlı 'Güvenli Mod' aktif edildi.")
-                features = [f.lower() for f in features]
-            else:
-                df, features = _prepare_data(df, features, model)
-                
+            df, features = _prepare_data(df, features, model)
             if df is None or df.empty:
                 st.error("❌ HATA: `_prepare_data` fonksiyonu veri setini tamamen sıfırladı/boşalttı!")
                 return _get_empty_result()
@@ -1583,6 +1549,9 @@ def analyze(df, model, features, symbol="THYAO"):
         # Eğer son satır NaN (boşluk) ürettiyse önceki satırlarla dolduruyoruz (Sıfırlanma Önleyici)
         df = df.ffill().bfill()
         
+        
+        
+
         # -------------------------------------------------------------------------
         # 2. LIVE PRICE (Canlı Fiyat Entegrasyonu)
         # -------------------------------------------------------------------------
@@ -1622,7 +1591,7 @@ def analyze(df, model, features, symbol="THYAO"):
         st.metric(label="5. Adım: Analize Giren Net Kapanış Fiyatı", value=f"{close} ₺")
         base_last = df.iloc[-1].copy()
 
-        # 🌟 ZIRH KODU
+        # 🌟 ZIRH KODUNU TAM BURAYA, BASE_LAST'IN HEMEN ALTINA YAPIŞTIR:
         clean_last_dict = {}
         for col in list(df.columns):
             col_lower = str(col).lower().strip()
@@ -1644,28 +1613,20 @@ def analyze(df, model, features, symbol="THYAO"):
         base_last = clean_last_dict
 
         # -------------------------------------------------------------------------
-        # 3. MODEL PREDICTION (XGBoost & LightGBM Ensemble) - SAFE VERSION
+        # 3. MODEL PREDICTION (XGBoost & LightGBM Ensemble)
         # -------------------------------------------------------------------------
         proba = 0.5
         try:
             valid_features = [f for f in features if f in df.columns]
-            
-            # 🛡️ GÜVENLİK DUVARI: Model hiç yüklenemediyse (None ise) veya sözlük değilse tahminleme adımlarını güvenle atla
-            if model is None or not isinstance(model, dict):
-                proba = 0.5 # Model yoksa çökme yaşatmamak için nötr (50%) olasılık atıyoruz
-                
-            elif len(valid_features) == len(features):
+            if len(valid_features) == len(features):
                 X = df[features].iloc[-1:].values
                 probs = []
-                
-                # Model geçerliyse xgb kontrolü yapılıyor
-                xgb_model = model.get("xgb", None)
+                xgb_model = model.get("xgb", None) if isinstance(model, dict) else None
                 if xgb_model is not None and hasattr(xgb_model, "predict_proba"):
                     try: comps = xgb_model.predict_proba(X); probs.append(float(comps[0][1]))
                     except Exception: pass
 
-                # Model geçerliyse lgbm kontrolü yapılıyor
-                lgbm_model = model.get("lgbm", None)
+                lgbm_model = model.get("lgbm", None) if isinstance(model, dict) else None
                 if lgbm_model is not None and hasattr(lgbm_model, "predict_proba"):
                     try: comps = lgbm_model.predict_proba(X); probs.append(float(comps[0][1]))
                     except Exception: pass
@@ -1677,13 +1638,12 @@ def analyze(df, model, features, symbol="THYAO"):
         except Exception:
             proba = 0.5
 
-        # numpy'ın import edildiğinden emin olalım (Hata riskine karşı kalkan)
-        import numpy as np
         proba = float(np.clip(proba, 0.05, 0.95))
 
         # -------------------------------------------------------------------------
         # 4. INDICATORS (Güvenli Hesaplama Katmanı)
         # -------------------------------------------------------------------------
+     
         try:
             # Sütunları küçük harfe zorla çağırdığımızdan emin ol
             adx_series = ta.trend.ADXIndicator(
@@ -1696,7 +1656,6 @@ def analyze(df, model, features, symbol="THYAO"):
         except Exception as e:
             adx = 25.0
             rsi = 50.0
-
     # -------------------------------------------------------------------------
     # 4.5 SÜTUN UYUMSUZLUK KÖPRÜSÜ (GÜVENLİ VERSİYON)
     # -------------------------------------------------------------------------
@@ -1704,6 +1663,7 @@ def analyze(df, model, features, symbol="THYAO"):
     df = df.loc[:, ~df.columns.duplicated()]
 
     # Alt fonksiyonlar hem küçük hem büyük harf arayabilsin diye sözlükle eşliyoruz
+    # Tablodaki mevcut sütunların Capitalize (İlk harfi büyük) versiyonlarını klonluyoruz
     existing_cols = list(df.columns)
     for col in existing_cols:
         cap_col = str(col).capitalize().strip()
@@ -1744,6 +1704,8 @@ def analyze(df, model, features, symbol="THYAO"):
     signal = engine.get("sinyal", "BEKLE").replace("NEUTRAL", "BEKLE").replace("⚪ BEKLE", "BEKLE")
     color = "#90A4AE"
     
+    
+
     # -------------------------------------------------------------------------
     # 8. FINAL MAPPING & OUTPUT
     # -------------------------------------------------------------------------
@@ -1766,6 +1728,8 @@ def analyze(df, model, features, symbol="THYAO"):
         ma50=float(base_last.get("ma50", close)),
         gunluk_getiri=gunluk_getiri, direnc=float(direnc), destek=float(destek)
     )
+
+    # [Buradaki mükerrer veya ara result atamasını temizleyip doğrudan ana sözlüğe geçiyoruz]
 
     # MACD hesaplaması (Yoksa ekle ki grafik hata vermesin)
     if 'macd' not in df.columns:
@@ -1801,6 +1765,7 @@ def analyze(df, model, features, symbol="THYAO"):
     # =============================================================
     # 🧠 🚀 KURŞUN GEÇİRMEZ KARAR FİLTRESİ & STRATEJİ KÖPRÜSÜ
     # =============================================================
+    # .get() kullanarak None veya KeyError risklerini tamamen sıfırlıyoruz
     suni_durum = str(result.get("suni_hareket", "")).upper()
     str_signal = str(result.get("signal", "")).upper()
     current_grade = str(result.get("grade", ""))
@@ -1811,7 +1776,6 @@ def analyze(df, model, features, symbol="THYAO"):
         result["signal"] = "BEKLE / İZLE"
         result["trend_text"] = "⚠️ Suni Baskı Altında"
         result["ai_comment"] = "⚠️ DİKKAT: Yapay zeka suni bir yükseliş (tuzak) tespit etti. Strateji koruma moduna alındı."
-        result["kar_koruma_durumu"] = "🟡 Karı Koru (Kademeli Azalt / Yakın Stop)"
 
     elif "SAT" in str_signal:
         result["exit_strategy_action"] = "STOP / NAKİTE GEÇ"
