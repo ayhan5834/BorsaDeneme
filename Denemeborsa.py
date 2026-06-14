@@ -180,10 +180,10 @@ model = load_model()
 # =========================================================================
 # Ekrandaki tüm tablolar, grafikler ve metinler çizildikten sonra en alta çalışır.
 
+# Dosyanın en son satırı:
 if model is None:
-    st.error("⚠️ Yapay zeka modeli sistemden yüklenemedi! Sistem otomatik olarak 'Teknik Analiz & Güvenli Mod' ile çalışıyor.")
+    st.info("ℹ️ Güvenli Mod Aktif: Yapay zeka modeli yüklenemediği için skorlamalar teknik indikatörler üzerinden hesaplanmaktadır. Verileriniz canlı ve günceldir.")
 
-# Mobil tarayıcı bağlantısını koparmadan 60 saniye güvenli bekleme uygular
 time.sleep(60)
 
 # Sayfayı yukarıdan aşağıya kayıpsız ve taze verilerle yeniden tetikler
