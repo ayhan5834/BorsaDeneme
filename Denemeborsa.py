@@ -1725,26 +1725,16 @@ def analyze(df, model, features, symbol="THYAO"):
         ma50=float(base_last.get("ma50", close)),
         gunluk_getiri=gunluk_getiri, direnc=float(direnc), destek=float(destek)
     )
-    
-    result = {
-        "price": close, 
-        # ... diğer tüm verilerin ...
-        "trend_power": float((adx * 0.6) + (abs(rsi - 50) * 0.8)), # Trend power burada tanımlı
-        # ... diğer verilerin ...
-    }
 
-    # 3. İŞLEMİ TAMAMLA VE DÖN:
-    empty_template = _get_empty_result()
-    for k, default_val in empty_template.items():
-        if k not in result or result[k] is None:
-            result[k] = default_val   
-    
+    # [Buradaki mükerrer veya ara result atamasını temizleyip doğrudan ana sözlüğe geçiyoruz]
+
     # MACD hesaplaması (Yoksa ekle ki grafik hata vermesin)
     if 'macd' not in df.columns:
         df['macd'] = 0.0
         df['macd_signal'] = 0.0
         df['macd_hist'] = 0.0
 
+    # Ana Sonuç Sözlüğü Oluşturuluyor
     result = {
         "price": close, "rsi": rsi, "adx": adx, "flow_index": flow_index, "flow": flow_index,
         "flow_raw": flow.get("flow_raw", 0.0), "flow_signal": flow.get("flow_signal", 0.0),
@@ -1769,12 +1759,34 @@ def analyze(df, model, features, symbol="THYAO"):
         "zirve_yorgunlugu": exit_data.get("zirve_yorgunlugu", "N/A"), "gun_ici_alarm": exit_data.get("gun_ici_alarm", "N/A")
     }
 
-    empty_template = _get_empty_result()
-    for k, default_val in empty_template.items():
-        if k not in result or result[k] is None:
-            result[k] = default_val
+    # =============================================================
+    # 🧠 🚀 KURŞUN GEÇİRMEZ KARAR FİLTRESİ & STRATEJİ KÖPRÜSÜ
+    # =============================================================
+    # .get() kullanarak None veya KeyError risklerini tamamen sıfırlıyoruz
+    suni_durum = str(result.get("suni_hareket", "")).upper()
+    str_signal = str(result.get("signal", "")).upper()
+    current_grade = str(result.get("grade", ""))
+
+    if "SUNİ YÜKSELİŞ" in suni_durum:
+        result["exit_strategy_action"] = "KADEMELİ AZALT / DİKKATLİ OL"
+        result["strategy_action"] = "BEKLE / İZLE"
+        result["signal"] = "BEKLE / İZLE"
+        result["trend_text"] = "⚠️ Suni Baskı Altında"
+        result["ai_comment"] = "⚠️ DİKKAT: Yapay zeka suni bir yükseliş (tuzak) tespit etti. Strateji koruma moduna alındı."
+
+    elif "SAT" in str_signal:
+        result["exit_strategy_action"] = "STOP / NAKİTE GEÇ"
+        result["strategy_action"] = "SAT"
+        result["exit_strategy_comment"] = "Trend gücü zayıf ve karne yetersiz. Pozisyon koruma yerine risk azaltma önerilir."
+        result["ai_comment"] = "🔴 Yapay zeka zayıf trend yapısı ve düşük karne skoru tespit etti. Riskleri azaltmak adına SAT/NAKİT stratejisi önerilir."
+        
+        if current_grade == "F":
+            result["kar_koruma_durumu"] = "🔴 Anapara Koruma (Stop Limit)"
+        else:
+            result["kar_koruma_durumu"] = "🔴 Pozisyon Kapat / Satış"
 
     return result
+
 
 def create_technical_chart(df):
     """Teknik analiz grafiğini güvenli ve harf duyarsız şekilde oluşturur."""
@@ -1961,6 +1973,9 @@ def create_technical_chart(df):
     # -------------------------------------------------------------------------
 
 
+# =============================================================
+# 🛠️ GÜVENLİ DÖNÜŞTÜRÜCÜ FONKSİYONLAR
+# =============================================================
 def safe_float(val):
     """Null/None korumalı float dönüştürücü."""
     if val is None:
@@ -1969,7 +1984,11 @@ def safe_float(val):
         return float(val)
     except (ValueError, TypeError):
         return 0.0
-    
+
+def safe_str(val, default="N/A"):
+    """Null/None korumalı string dönüştürücü."""
+    return str(val) if val is not None else default
+
 
 
 # ==============================================================================
@@ -2214,11 +2233,33 @@ if IS_STREAMLIT:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # =============================================================
-                    # KPI METRICTS PANELİ
-                    # =============================================================
-                    # 📊 KPI PANELİ (Daha okunaklı ve görsel)
-                    
+                   
+                   
+                     # =============================================================
+                     # 📊 KPI PANELİ
+                     # =============================================================
+                    st.markdown("## 📊 KPI Paneli")
+
+                    # 1. Satır: Fiyat ve Teknik Göstergeler
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Fiyat", f"{safe_float(result.get('price')):.2f}")
+                    c2.metric("RSI", f"{safe_float(result.get('rsi')):.1f}")
+                    c3.metric("ADX", f"{safe_float(result.get('adx')):.1f}")
+
+                    # 2. Satır: Akış ve Güven Durumu
+                    c4, c5, c6 = st.columns(3)
+                    # Flow değerini güvenli şekilde alıp yüzdelik formata çeviriyoruz
+                    flow_percentage = safe_float(result.get('flow')) * 100
+                    c4.metric("Flow", f"%{flow_percentage:.2f}")
+                    c5.metric("Smart Money", f"{safe_float(result.get('smart_money')):.0f}/100")
+                    c6.metric("Güven", f"%{safe_float(result.get('guven_skoru')):.0f}")
+
+                    # 3. Satır: Strateji Skorları
+                    c7, c8, c9 = st.columns(3)
+                    c7.metric("R/R", f"{safe_float(result.get('rr')):.2f}")
+                    c8.metric("Skor", f"{safe_float(result.get('score')):.3f}")
+                    c9.metric("Grade", safe_str(result.get("grade")), help="Hisse performans derecesi")
+                   
 
                     
                     # =============================================================
