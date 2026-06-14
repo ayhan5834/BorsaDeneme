@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jun 10 22:57:52 2026
+Created on Sat Jun 13 22:28:58 2026
 
 @author: EmirAysu
 """
@@ -14,6 +14,13 @@ import logging
 import subprocess
 from pathlib import Path
 from datetime import datetime
+import requests
+from types import MappingProxyType
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports import zoneinfo as ZoneInfo  # Eski Python sürümleri için güvence
 
 # Streamlit'in Spyder/Bare modda çalışırken attığı "missing ScriptRunContext" uyarısını sustur
 logging.getLogger("streamlit.runtime.scriptrunner.script_runner").setLevel(logging.CRITICAL)
@@ -30,7 +37,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
-from zoneinfo import ZoneInfo
+
 
 
 # =============================================================================
@@ -44,6 +51,29 @@ try:
         IS_STREAMLIT = True
 except ImportError:
     pass
+
+# PYQT_AVAILABLE değişkenini projedeki tüm sınıflardan ÖNCE kesin olarak tanımlıyoruz
+try:
+    from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLabel, QPushButton
+    from PyQt5.QtCore import Qt
+    PYQT_AVAILABLE = True
+except ImportError:
+    try:
+        from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLabel, QPushButton
+        from PyQt6.QtCore import Qt
+        PYQT_AVAILABLE = True
+    except ImportError:
+        PYQT_AVAILABLE = False
+
+# =============================================================================
+# 4. YEREL MODÜLLER (Sizin proje dosyalarınız)
+# =============================================================================
+try:
+    from database import Veritabani
+except ImportError:
+    class Veritabani:
+        def __init__(self): 
+            pass
 
 # =============================================================================
 # 5. AYARLAR VE SUNUCU UYUMLU DİNAMİK DOSYA YOLLARI
@@ -75,163 +105,173 @@ def get_model_path():
 
 MODEL_PATH = get_model_path()
 
-# ==============================================================
-# VERI ÇEKME FONKSİYONLARI (BOYUT HATASI KÖKTEN ÇÖZÜLDÜ)
-# ==============================================================
 # =============================================================================
 # VERİ YÖNETİM KATMANI - REFACTOR SAFE
 # =============================================================================
 
-def _clean_yfinance_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Yahoo Finance verisini analiz motoru için standart hale getirir.
-
-    - MultiIndex kolonları temizler
-    - Yinelenen kolonları kaldırır
-    - OHLCV kontrolü yapar
-    - Sayısal alanları float'a dönüştürür
-    - Boş fiyat satırlarını temizler
-    - Tarihe göre sıralar
-    - Her zaman DataFrame döndürür
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = df.copy()
-
-    try:
-        # =====================================================================
-        # 1. MULTIINDEX TEMİZLİĞİ
-        # =====================================================================
+def _clean_yfinance_df(df):
+    """Yfinance'den gelen verileri temizler ve sütun isimlerini standartlaştırır."""
+    if df is not None and not df.empty:
+        df = df.copy()
+        
+        # 1. Aşama: Mükerrer sütun oluştuysa hemen teke düşür
+        df = df.loc[:, ~df.columns.duplicated()]
+        
+        # 2. Aşama: Eğer yfinance sütunları Multi-Index getirdiyse en üst katmanı al
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-
-        # =====================================================================
-        # 2. DUPLICATE SÜTUN TEMİZLİĞİ
-        # =====================================================================
-        df = df.loc[:, ~df.columns.duplicated()].copy()
-
-        # =====================================================================
-        # 3. ZORUNLU OHLCV KONTROLÜ
-        # =====================================================================
-        required_cols = {"Open", "High", "Low", "Close", "Volume"}
-
-        if not required_cols.issubset(df.columns):
-            missing = required_cols - set(df.columns)
-            print(f"⚠️ [_clean_yfinance_df] Eksik kolonlar: {missing}")
-            return pd.DataFrame()
-
-        # =====================================================================
-        # 4. SAYISAL DÖNÜŞÜM
-        # =====================================================================
-        numeric_cols = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
-
-        for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # =====================================================================
-        # 5. CLOSE BOŞ OLAN SATIRLARI TEMİZLE
-        # =====================================================================
-        df = df.dropna(subset=["Close"])
-
-        # =====================================================================
-        # 6. INDEX SIRALAMA
-        # =====================================================================
-        if len(df.index) > 1:
-            df = df.sort_index()
-
-        # =====================================================================
-        # 7. SON KONTROL
-        # =====================================================================
-        if df.empty:
-            return pd.DataFrame()
-
-        return df
-
-    except Exception as e:
-        print(f"⚠️ [_clean_yfinance_df] Hata: {e}")
-        return pd.DataFrame()
+            
+        # 3. Aşama: Tüm sütun isimlerini küçük harfe çevir ve boşlukları buda
+        df.columns = [str(col).lower().strip() for col in df.columns]
+        
+        # 4. Aşama: Tarih indeksini sağlama al
+        df.index = pd.to_datetime(df.index)
+        
+    return df
 
 if IS_STREAMLIT:
-    # -------------------------------------------------------------------------
-    # STREAMLIT AKTİF ORTAM (CACHE DESTEKLİ)
-    # -------------------------------------------------------------------------
-    
     @st.cache_data(ttl=60)
     def get_live_data(symbol: str, period="1d", interval="5m"):
-        """Anlık takip için 60 saniye ömürlü, kısa periyotlu veri çeker."""
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
 
     @st.cache_data(ttl=3600)
     def get_history(symbol: str, period="300d", interval="1d"):
-        """Stratejik analizler için 1 saat ömürlü, geniş periyotlu veri çeker."""
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
-
 else:
-    # -------------------------------------------------------------------------
-    # ARKA PLAN ORTAMI (CORE / BACKTEST / SCRIPT)
-    # -------------------------------------------------------------------------
-    
     def get_live_data(symbol: str, period="1d", interval="5m"):
-        """Önbelleksiz, doğrudan canlı tahta verisi çeker."""
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
 
     def get_history(symbol: str, period="300d", interval="1d"):
-        """Önbelleksiz, doğrudan tarihsel bar verisi çeker."""
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
-    
+
 @st.cache_resource(show_spinner=False)
 def load_model() -> dict | None:
-    """Eğitilmiş modeli yükler ve Streamlit cache'inde saklar.
-
-    Returns:
-        dict | None: Model sözlüğü veya hata durumunda None
-    """
     if not os.path.isfile(MODEL_PATH):
-        print(f"❌ [load_model] Model dosyası bulunamadı: {MODEL_PATH}")
         return None
-
     try:
         model = joblib.load(MODEL_PATH)
-
-        if model is None:
-            print("❌ [load_model] Model boş yüklendi.")
+        if model is None or not isinstance(model, dict) or "xgb" not in model:
             return None
-
-        if not isinstance(model, dict):
-            print(f"❌ [load_model] Geçersiz model tipi: {type(model).__name__}")
-            return None
-
-        # Beklenen anahtarlar mevcut mu?
-        required_keys = {"xgb"}
-        missing = required_keys - set(model.keys())
-
-        if missing:
-            print(f"❌ [load_model] Eksik model bileşenleri: {', '.join(missing)}")
-            return None
-
-        print("✅ Model başarıyla yüklendi.")
         return model
-
-    except Exception as e:
-        print(f"❌ [load_model] Yükleme esnasında kritik hata: {e}")
+    except Exception:
         return None
+
+# ==============================================================================
+# 🛠️ GÜVENLİK VE GECİCİ KORUMA MOTORLARI (EKSİK FONKSİYONLAR İÇİN)
+# ==============================================================================
+
+def get_isyatirim_institutional_flow(symbol):
+    """
+    İş Yatırım takas/kurumsal veri motoru. 
+    Fonksiyon sistemde tanımlı değilse ana motorun çökmesini engellemek için None döner.
+    """
+    try:
+        # İleride buraya kurumsal akış kazıma (scraping) kodlarınızı ekleyebilirsiniz.
+        return None
+    except Exception:
+        return None
+
+def get_isyatirim_flow(symbol):
+    """İş Yatırım genel para akışı motoru eksikse sistemi çökertmeyen bypass."""
+    try:
+        return None
+    except Exception:
+        return None
+
+
+# ==============================================================================
+# 📈 YENİDEN YAPILANDIRILMIŞ VE HATASIZ HİBRİT MOTOR FONKSİYONLARI
+# ==============================================================================
+
+def get_isyatirim_price(symbol):
+    """İş Yatırım web sitesinden anlık fiyat çeker."""
+    try:
+        url = "https://www.isyatirim.com.tr/tr-tr/analiz/hisse/Sayfalar/default.aspx"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        
+        html_tables = pd.read_html(url, storage_options={"User-Agent": headers})
+        if not html_tables:
+            return None
+
+        df_prices = html_tables[0]
+        df_prices.columns = [str(col).strip() for col in df_prices.columns]
+
+        # Sembolün sonundaki .IS uzantısını temizleyerek arama doğruluğunu sağlıyoruz
+        hisse_temiz = symbol.replace(".IS", "").strip().upper()
+        symbol_row = df_prices[df_prices.iloc[:, 0].astype(str).str.upper() == hisse_temiz]
+
+        if not symbol_row.empty:
+            fiyat_kolonu = "Son (TL)" if "Son (TL)" in df_prices.columns else "Son"
+            raw_price = str(symbol_row[fiyat_kolonu].values[0]) if fiyat_kolonu in df_prices.columns else str(symbol_row.iloc[0, 1])
+            
+            raw_price = raw_price.replace(".", "").replace(",", ".").replace(" ", "")
+            return float(raw_price)
+    except Exception as e:
+        print(f"⚠️ İş Yatırım fiyat çekme hatası ({symbol}): {e}")
+        return None
+    return None
+
+def get_price_history(symbol, period="1y"):
+    """Yahoo Finance üzerinden geçmiş verileri güvenli şekilde indirir."""
+    sembol_temiz = symbol.replace(".IS", "").strip().upper()
+    return _clean_yfinance_df(yf.download(f"{sembol_temiz}.IS", period=period, auto_adjust=True, progress=False))
+
+def get_live_price_hybrid(symbol):
+    """Önce İş Yatırım, başarısız olursa Yahoo."""
+    try:
+        price = get_isyatirim_price(symbol)
+        if price and price > 0:
+            return float(price)
+    except Exception:
+        pass
+    return get_live_price(symbol)
+
+def calculate_hybrid_smart_money(symbol, close, flow_signal, last=None):
+    """
+    Geliştirilmiş, NameError ve Parametre çakışmalarından arındırılmış Akıllı Para Motoru.
+    'last' parametresi dışarıdan güvenle kabul edilir, gelmezse varsayılan değer atanır.
+    """
+    try:
+        kurum_verisi = get_isyatirim_institutional_flow(symbol)
+        if kurum_verisi is not None:
+            # Eğer kurumsal veri bir sözlük (dict) olarak dönüyorsa içinden skoru çeker
+            if isinstance(kurum_verisi, dict):
+                return float(np.clip(kurum_verisi.get("smart_score", 50), 0, 100))
+            return float(np.clip(kurum_verisi, 0, 100))
+    except Exception:
+        pass
     
-def validate_output(result, schema):
-    for key in schema:
-        if key not in result:
-            result[key] = None
-    return result
+    # 🌟 KRİTİK EŞİK: Eğer dışarıdan indikatör sözlüğü (last) gelmediyse, 
+    # alt motorun NameError vermemesi için güvenli bir varsayılan veri seti oluşturulur.
+    if last is None:
+        last = {"rsi": 50, "macd": 0, "macd_signal": 0, "ma200": close}
+        
+    # Artık 'last' değişkeni Python tarafından kesinlikle tanınıyor!
+    return _calculate_smart_money(last=last, close=close, flow_signal=flow_signal)
+
+def get_hybrid_flow(symbol, df):
+    """Hibrit Emir Akışı Denetleyicisi."""
+    try:
+        flow = get_isyatirim_flow(symbol)
+        if flow is not None:
+            return flow
+    except Exception:
+        pass
+    return _calculate_order_flow(df)
+
+def calculate_data_quality(has_live_price, has_institutional_data):
+    score = 50
+    if has_live_price:
+        score += 25
+    if has_institutional_data:
+        score += 25
+    return score
 
 def determine_trend(adx, rsi, flow_signal):
-    
-    # =========================
-    # 1. TREND GÜCÜ SINIFI
-    # =========================
     if adx >= 30:
         trend_strength = "strong"
     elif adx >= 20:
@@ -239,237 +279,212 @@ def determine_trend(adx, rsi, flow_signal):
     else:
         trend_strength = "none"
 
-    # =========================
-    # 2. YÖN TESPİTİ (MULTI FACTOR)
-    # =========================
     score = 0
-
-    # RSI katkısı
     if rsi > 55:
         score += 1
     elif rsi < 45:
         score -= 1
 
-    # FLOW katkısı (KRİTİK)
     if flow_signal > 0:
         score += 1
     elif flow_signal < 0:
         score -= 1
 
-    # =========================
-    # 3. SONUÇ HARİTASI
-    # =========================
     if trend_strength == "none":
         return "⚪ Yatay / Belirsiz Rejim"
 
     if trend_strength == "weak":
-        if score >= 1:
-            return "🟡 Zayıf Yükseliş Eğilimi"
-        elif score <= -1:
-            return "🟠 Zayıf Düşüş Eğilimi"
-        else:
-            return "⚪ Kararsız / Sıkışma"
+        if score >= 1: return "🟡 Zayıf Yükseliş Eğilimi"
+        elif score <= -1: return "🟠 Zayıf Düşüş Eğilimi"
+        else: return "⚪ Kararsız / Sıkışma"
 
     if trend_strength == "strong":
-        if score >= 2:
-            return "🟢 Güçlü Yükseliş Trendi"
-        elif score <= -2:
-            return "🔴 Güçlü Düşüş Trendi"
-        elif score == 1:
-            return "🟡 Trend var ama momentum zayıf"
-        elif score == -1:
-            return "🟠 Trend aşağı ama alım tepki ihtimali"
-        else:
-            return "⚪ Güçlü trend içinde konsolidasyon"
+        if score >= 2: return "🟢 Güçlü Yükseliş Trendi"
+        elif score <= -2: return "🔴 Güçlü Düşüş Trendi"
+        elif score == 1: return "🟡 Trend var ama momentum zayıf"
+        elif score == -1: return "🟠 Trend aşağı ama alım tepki ihtimali"
+        else: return "⚪ Güçlü trend içinde konsolidasyon"
 
+def calculate_exit_strategy(
+    price: float,
+    rsi: float,
+    buy_pressure: float,
+    flow_signal: float,
+    ma50: float,
+    gunluk_getiri: float,
+    direnc: float,
+    destek: float,
+    fake_rally: bool = False
+) -> dict:
+    """
+    Kurumsal para çıkışı, tepe oluşumu ve kâr koruma modülü.
+    """
+    # Değişkenleri başlangıç değerleri ile tanımla (Güvenli yapı)
+    ex_action = "TUT"
+    ex_comment = "Belirgin tepe veya dağıtım sinyali bulunmuyor."
 
-# =============================================================================
-# 1. ERKEN DAĞITIM UYARISI & KÂR KORUMA HESAPLAMASI
-# =============================================================================
-def calculate_exit_strategy(price, rsi, buy_pressure, flow_signal, ma50, gunluk_getiri, direnc):
-    """
-    Ticaret Standartlarında Gelişmiş Satış ve Kâr Koruma Modülü.
-    Tepe yorgunluklarını ve kurumsal dağıtımları tespit ederek erken uyarı üretir.
-    """
+    # --- TEPE SKORU HESAPLAMA ---
+    tepe_skoru = 0
+    if rsi > 70:
+        tepe_skoru += 25
+    elif rsi > 60:
+        tepe_skoru += 10
+
+    if flow_signal < 0:
+        tepe_skoru += 25
+    if buy_pressure < 0.48:
+        tepe_skoru += 25
+    if price >= direnc * 0.98:
+        tepe_skoru += 25
+    if fake_rally:
+        tepe_skoru += 20
+
+    tepe_skoru = min(tepe_skoru, 100)
+
+    # --- KAR KORUMA SKORU HESAPLAMA ---
     kar_koruma_skoru = 0
-    
-    if rsi > 50:
-        if rsi > 70:
-            kar_koruma_skoru += 30
-        if buy_pressure < 0.50:
-            kar_koruma_skoru += 30
-        if flow_signal < 0:
-            kar_koruma_skoru += 40
+    if rsi > 70:
+        kar_koruma_skoru += 30
+    if buy_pressure < 0.45:
+        kar_koruma_skoru += 20
+    if flow_signal < 0:
+        kar_koruma_skoru += 40
+    if fake_rally:
+        kar_koruma_skoru += 15
 
-        if kar_koruma_skoru < 30:
-            kar_koruma_durumu = "🟢 Pozisyonu Koru / Tut"
-        elif kar_koruma_skoru < 60:
-            kar_koruma_durumu = "🟡 Kârı Koru (Yakın Stop)"
-        else:
-            kar_koruma_durumu = "🟠 Kademeli Satış Düşünülmeli"
+    kar_koruma_skoru = min(kar_koruma_skoru, 100)
 
-        # Zirve Yorgunluğu
-        zirve_yorgunlugu_sinyali = "🟢 Normal (Zirve Baskısı Yok)"
-        if (price > ma50 * 1.08) and (rsi > 65) and (flow_signal < 0):
-            zirve_yorgunlugu_sinyali = "⚠️ YÜKSELİŞ DEVAM EDİYOR AMA PARA ÇIKIŞI BAŞLADI (Mal Dağıtımı!)"
-
-        # Gün İçi Alarm
-        gun_ici_alarm = "🟢 Normal"
-        if gunluk_getiri > 4 and flow_signal < 0:
-            gun_ici_alarm = "💰 KÂR KORUMA MODU AKTİF (Kademeli satış düşünülebilir)"
-
-        # Tepe Skoru
-        tepe_skoru = 0
-        if rsi > 70:
-            tepe_skoru += 25
-        if flow_signal < 0:
-            tepe_skoru += 25
-        if buy_pressure < 0.48:
-            tepe_skoru += 25
-        if price >= direnc * 0.98:
-            tepe_skoru += 25
-
-        if tepe_skoru <= 25:
-            tepe_bolgesi_durumu = "🟢 Normal Bölge"
-        elif tepe_skoru <= 50:
-            tepe_bolgesi_durumu = "🟡 Dikkat Seviyesi"
-        elif tepe_skoru <= 75:
-            tepe_bolgesi_durumu = "🟠 Kâr Koru / İzle"
-        else:
-            tepe_bolgesi_durumu = "🔴 GÜÇLÜ SATIŞ BÖLGESİ (Tepe Noktası)"
-            
-    else:
-        kar_koruma_skoru = 0
-        tepe_skoru = 0
+    # --- DURUM ANALİZLERİ ---
+    if kar_koruma_skoru < 30:
         kar_koruma_durumu = "🟢 Pozisyonu Koru / Tut"
-        zirve_yorgunlugu_sinyali = "🟢 Normal (Zirve Baskısı Yok)"
-        gun_ici_alarm = "🟢 Normal"
-        tepe_bolgesi_durumu = "🟢 Normal Bölge"
+    elif kar_koruma_skoru < 60:
+        kar_koruma_durumu = "🟡 Kârı Koru (Yakın Stop)"
+    else:
+        kar_koruma_durumu = "🟠 Kademeli Satış Düşünülmeli"
 
-    # Karar Yapısı ve Yorum Üretimi
+    if tepe_skoru <= 25:
+        tepe_bolgesi_durumu = "🟢 Normal Bölge"
+    elif tepe_skoru <= 50:
+        tepe_bolgesi_durumu = "🟡 Dikkat Seviyesi"
+    elif tepe_skoru <= 75:
+        tepe_bolgesi_durumu = "🟠 Kâr Koru / İzle"
+    else:
+        tepe_bolgesi_durumu = "🔴 GÜÇLÜ SATIŞ BÖLGESİ"
+
+    # --- SİNYAL VE ALARMLAR ---
+    zirve_yorgunlugu_sinyali = "🟢 Normal (Zirve Baskısı Yok)"
+    if price > ma50 * 1.08 and rsi > 65 and flow_signal < 0:
+        zirve_yorgunlugu_sinyali = "⚠️ YÜKSELİŞ DEVAM EDİYOR AMA PARA ÇIKIŞI BAŞLADI"
+
+    gun_ici_alarm = "🟢 Normal"
+    if gunluk_getiri > 4 and flow_signal < 0:
+        gun_ici_alarm = "💰 KÂR KORUMA MODU AKTİF"
+
+    # --- AKSİYON KARARI ---
     if flow_signal < -0.15 and buy_pressure < 0.45:
         ex_action = "BEKLE/SAT"
-        ex_comment = ("Tepe oluşumu yok ancak hisse üzerinde güçlü satış baskısı bulunuyor. "
-                      "Alıcılar zayıf, para çıkışı devam ediyor. Yeni pozisyon için erken.")
-    elif tepe_skoru >= 75 or kar_koruma_skoru >= 60:
+        ex_comment = "Güçlü satış baskısı mevcut. Para çıkışı devam ediyor."
+    elif tepe_skoru >= 75:
         ex_action = "KADEMELİ SAT"
-        ex_comment = (f"Kritik Uyarı: Tepe skoru (%{tepe_skoru}) and Erken Dağıtım riski çok yüksek. "
-                      f"Fiyat yükseliyor görünse de akıllı para çıkışı (Flow Signal: {flow_signal:.3f}) onaylandı. "
-                      f"Kar realizasyonu rasyoneldir.")
-    elif tepe_skoru >= 50 or gun_ici_alarm != "🟢 Normal":
+        ex_comment = f"Tepe skoru %{tepe_skoru}. Kâr realizasyonu düşünülebilir."
+    elif tepe_skoru >= 50:
         ex_action = "KÂR KORU / İZLE"
-        ex_comment = ("Hissede gün içi güçlü marj yakalandı ancak üst kademelerde "
-                      "yorgunluk ve sığlaşma emareleri var. İz süren stopu yukarı çekerek "
-                      "pozisyonu koruyun.")
-    else:
-        ex_action = "TUT"
-        ex_comment = ("Hissede tepe yorgunluğu veya kurumsal mal boşaltma sinyali "
-                      "bulunmuyor. Trend sağlıklı şekilde devam ediyor veya dip arayışı hakim.")
+        ex_comment = "Yorgunluk belirtileri oluşuyor."
 
     return {
-        "kar_koruma_skoru": kar_koruma_skoru,
+        "kar_koruma_skoru": round(kar_koruma_skoru),
         "kar_koruma_durumu": kar_koruma_durumu,
-        "tepe_skoru": tepe_skoru,
+        "tepe_skoru": round(tepe_skoru),
         "tepe_bolgesi_durumu": tepe_bolgesi_durumu,
         "zirve_yorgunlugu": zirve_yorgunlugu_sinyali,
         "gun_ici_alarm": gun_ici_alarm,
         "exit_strategy_action": ex_action,
-        "exit_strategy_comment": ex_comment
+        "exit_strategy_comment": ex_comment,
+        "stop_loss": round(destek, 2),
+        "take_profit": round(direnc, 2),
     }
 
 def get_live_price(symbol: str) -> float | None:
-    """Hisse senedinin güncel fiyatını almaya çalışır.
-
-    Öncelik sırası:
-    1. fast_info (en hızlı)
-    2. info
-    3. Son kapanış (download)
-
-    Başarısız olursa None döner.
-    """
+    """Hisse senedinin güncel fiyatını almaya çalışır."""
     yf_symbol = symbol if symbol.endswith(".IS") else f"{symbol}.IS"
-
     try:
         ticker = yf.Ticker(yf_symbol)
-
-        # =====================================================================
-        # 1. ÖNCELİK: FAST_INFO
-        # =====================================================================
+        
         try:
             if hasattr(ticker, "fast_info"):
                 fi = ticker.fast_info
-
-                if isinstance(fi, dict):
-                    live_price = fi.get("lastPrice") or fi.get("regularMarketPrice")
-                else:
-                    live_price = getattr(fi, "lastPrice", None) or getattr(fi, "regularMarketPrice", None)
-
+                live_price = fi.get("lastPrice") or fi.get("regularMarketPrice") if isinstance(fi, dict) else getattr(fi, "lastPrice", None) or getattr(fi, "regularMarketPrice", None)
                 if live_price is not None and live_price > 0:
                     return float(live_price)
         except Exception:
             pass
 
-        # =====================================================================
-        # 2. FALLBACK: INFO
-        # =====================================================================
         try:
             info = ticker.info
-            live_price = (
-                info.get("regularMarketPrice")
-                or info.get("currentPrice")
-                or info.get("previousClose")
-            )
-
+            live_price = info.get("regularMarketPrice") or info.get("currentPrice") or info.get("previousClose")
             if live_price is not None and live_price > 0:
                 return float(live_price)
         except Exception:
             pass
 
-        # =====================================================================
-        # 3. SON ÇARE: DOWNLOAD
-        # =====================================================================
-        df = yf.download(
-            yf_symbol,
-            period="5d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            threads=False
-        )
-
+        df = yf.download(yf_symbol, period="5d", interval="1d", auto_adjust=True, progress=False, threads=False)
         if not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
-
             if "Close" in df.columns:
-                close_price = float(df["Close"].iloc[-1])
+                # Seri mi yoksa DataFrame mi döndüğünü garanti altına alıyoruz
+                val = df["Close"].iloc[-1]
+                close_price = float(val.values[0]) if hasattr(val, "values") else float(val)
                 if close_price > 0:
                     return close_price
-
     except Exception:
         pass
-
     return None
-
 
 # ==============================================================
 # ANALİZ VE İNDİKATÖR MOTORU
 # ==============================================================
 def add_indicators(df: pd.DataFrame):
     df = df.copy()
-    close = df["Close"]
+    
+    # Sütun isimlerini tamamen temizle ve küçük harfe sabitle
+    df = df.loc[:, ~df.columns.duplicated()]
+    df.columns = [str(col).lower().strip() for col in df.columns]
+    
+    # 'close' sütununu güvenli bir şekilde çek
+    if "close" in df.columns:
+        close_ser = pd.to_numeric(df["close"], errors="coerce").astype(float)
+    else:
+        close_ser = pd.to_numeric(df.iloc[:, 3], errors="coerce").astype(float)
+        
+    close_ser = close_ser.ffill().bfill()
 
-    df["rsi"] = ta.momentum.RSIIndicator(close, 14).rsi()
+    # Hesaplamaları sadece küçük harfli sütunlara yapıyoruz (Pandas çakışmasın diye)
+    df["rsi"] = ta.momentum.RSIIndicator(close_ser, window=14, fillna=True).rsi()
+    
+    macd_obj = ta.trend.MACD(close_ser, fillna=True)
+    df["macd"] = macd_obj.macd()
+    df["macd_signal"] = macd_obj.macd_signal()
 
-    macd = ta.trend.MACD(close)
-    df["macd"] = macd.macd()
-    df["macd_signal"] = macd.macd_signal()
+    df["ma50"] = close_ser.rolling(window=50, min_periods=1).mean()
+    df["ma200"] = close_ser.rolling(window=200, min_periods=1).mean()
 
-    df["ma50"] = close.rolling(50).mean()
-    df["ma200"] = close.rolling(200).mean()
+    df["return"] = close_ser.pct_change().fillna(0)
+    df["volatility"] = df["return"].rolling(window=10, min_periods=1).std().fillna(0)
 
-    df["return"] = close.pct_change()
-    df["volatility"] = df["return"].rolling(10).std()
+    # Tablonun yok olmasını engellemek için boşlukları doldur
+    df = df.ffill().bfill()
+
+    # 🌟 SÜTUN KÖPRÜSÜNÜ EN SONDA SÖZLÜKLE YAPIYORUZ (Kritik Hamle)
+    # Mevcut küçük harfli sütunların ilk harfi büyük hallerini güvenli bir sözlük yapısıyla ekliyoruz
+    new_cols = {}
+    for col in df.columns:
+        cap_col = str(col).capitalize().strip()
+        if cap_col != str(col): # Eğer zaten büyük harfli değilse listeye ekle
+            new_cols[cap_col] = df[col]
+            
+    # Tüm yeni büyük harfli sütunları tek hamlede DataFrame'e dikiyoruz
+    df = df.assign(**new_cols)
 
     return df
 
@@ -490,184 +505,353 @@ def calculate_final_score(proba, guven, smart_money, flow, adx, rsi, hacim_orani
     return float(np.clip(score, 0, 1))
 
 
-def detect_regime(adx, rsi, flow):
-    if adx > 25 and flow > 0: return "TREND"
-    elif adx < 18: return "SIDEWAYS"
-    elif rsi > 70 and flow < 0: return "DISTRIBUTION"
-    elif rsi < 45 and flow > 0: return "ACCUMULATION"
-    return "UNKNOWN"
+def detect_regime(adx, rsi, flow_signal):
+    """Daha dengeli piyasa rejimi sınıflandırması."""
+    # FLOW'u güvenli banda çek (aşırı tepkiyi engeller)
+    flow = max(min(flow_signal, 0.2), -0.2)
 
-def _get_empty_result():
-    return {
-        "price": 0.0, "rsi": 0.0, "adx": 0.0,
-        "flow": 0.0, "flow_raw": 0.0, "flow_signal": 0.0,
-        "buy_volume": 0.0, "sell_volume": 0.0,
-        "buy_pressure": 0.0, "sell_pressure": 0.0,
-        "smart_money": 0.0, "guven_skoru": 0.0,
-        "rr": 1.0, "score": 0.0, "final_score": 0.0,
-        "grade": "N/A", "signal": "⚠️ VERİ YETERSİZ", "color": "#757575",
-        "destek": 0.0, "direnc": 0.0,
-        "regime": "Bilinmiyor", "trend_text": "Veri Yetersiz", "piyasa_notu": "Yetersiz Veri",
-        "stop_loss": 0.0, "take_profit": 0.0,
-        "stock_score": 0.0, "hisse_karnesi": 0.0, "flow_index": 0.0,
-        "ai_comment": "Teknik analiz ve yapay zeka modellerinin çalışabilmesi için daha fazla geçmiş bar oluşması beklenmelidir.",
-        "strategy_action": "BEKLE/SAT",
-        "kalicilik_durumu": "⚠️ VERİ YETERSİZ (Hacim Analizi Yapılamadı)",
-        "suni_kod": 0,
-        "kar_koruma_skoru": 0, "kar_koruma_durumu": "N/A", "tepe_skoru": 0,
-        "tepe_bolgesi_durumu": "N/A", "zirve_yorgunlugu": "N/A", "gun_ici_alarm": "N/A",
-        "exit_strategy_action": "BEKLE/SAT", "exit_strategy_comment": "Veri Yetersiz"
-    }
+    # ---------------------------------------------------------
+    # 1. GÜÇLÜ TRENDLER (Öncelikli Dar Kapsamlı Koşullar)
+    # ---------------------------------------------------------
+    if adx > 30 and rsi < 40 and flow < -0.06:
+        return "🔴 Güçlü Düşüş Trendi"
 
-def _prepare_data(
-    df: pd.DataFrame,
-    features: list | None,
-    model: dict | None
-) -> tuple[pd.DataFrame, list]:
-    """Analiz öncesi veri hazırlama sürecini yönetir.
+    if adx > 25 and rsi > 55 and flow > 0.06:
+        return "🟢 Güçlü Yükseliş Trendi"
 
-    - OHLCV kolonlarını sayısala çevirir
-    - Teknik indikatörleri hesaplar
-    - NaN / Inf temizliği yapar
-    - Model ile feature uyumluluğunu kontrol eder
-    - Eksik feature'ları oluşturur
-    - Feature sıralamasını korur
-    """
-    # =====================================================================
-    # 0. GİRİŞ KONTROLÜ
-    # =====================================================================
+    # ---------------------------------------------------------
+    # 2. ZAYIF TRENDLER VE YATAY PİYASA (Geniş Kapsamlı Koşullar)
+    # ---------------------------------------------------------
+    if adx > 25 and flow < -0.03:
+        return "🔴 Zayıf Düşüş Eğilimi"
+
+    if adx < 20 and -0.03 <= flow <= 0.03 and 40 <= rsi <= 55:
+        return "⚪ Yatay / Denge"
+
+    if flow > 0.03 and rsi > 45:
+        return "🟢 Zayıf Yükseliş"
+
+    # ---------------------------------------------------------
+    # 3. FALLBACK (Hiçbir Koşula Uymayan Durum)
+    # ---------------------------------------------------------
+    return "⚪ Kararsız"
+
+
+def get_signal(adx, rsi, flow_signal, smart_money=50):
+    # Nötr başlangıç skoru
+    score = 50
+
+    # 1. RSI Momentum ve Trend Yönü Belirleme
+    if rsi > 55:
+        score += 10
+        score += 10 if adx > 25 else -5
+    elif rsi < 40:
+        score -= 10
+        score -= 10 if adx > 25 else -5
+    else:
+        if adx > 25:
+            score -= 5
+
+    # 2. Flow Etkisi (Küçük ama stabil)
+    score += flow_signal * 100 * 0.6
+
+    # 3. Smart Money Etkisi
+    score += (smart_money - 50) * 0.4
+
+    # 4. Clamp (Skoru 0-100 arasında sınırla)
+    score = max(0, min(100, score))
+
+    # ---------------------------------------------------------
+    # FINAL SIGNAL
+    # ---------------------------------------------------------
+    if score >= 70:
+        return "🟢 AL", score
+    if score <= 40:
+        return "🔴 SAT", score
+    
+    return "⚪ BEKLE", score
+
+
+def _prepare_data(df: pd.DataFrame, features: list | None, model: dict | None) -> tuple[pd.DataFrame, list]:
+    """Analiz öncesi veri hazırlama sürecini yönetir."""
+    import streamlit as st
+    import numpy as np
+    import pandas as pd
+
     if df is None or df.empty:
+        st.error("🚨 _prepare_data Giriş Hatası: Gelen df boş veya None!")
         return pd.DataFrame(), []
 
     df = df.copy()
-
+    
+    # -------------------------------------------------------------------------
+    # Adım A: Sütun Temizliği ve Normalizasyon
+    # -------------------------------------------------------------------------
     try:
-        # =====================================================================
-        # 1. SAYISAL KOLON DÖNÜŞÜMÜ
-        # =====================================================================
-        numeric_cols = ["Open", "High", "Low", "Close", "Volume"]
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
+        cleaned_cols = []
+        for col in df.columns:
+            if isinstance(col, tuple):
+                cleaned_cols.append(str(col[0]).lower().strip())
+            else:
+                cleaned_cols.append(str(col).lower().strip())
+        df.columns = cleaned_cols
+    except Exception as e:
+        st.error(f"🚨 _prepare_data Adım A (Sütun Temizliği) Hatası: {e}")
+        return pd.DataFrame(), []
 
+    # -------------------------------------------------------------------------
+    # Adım B: Numerik Tipe Zorlama
+    # -------------------------------------------------------------------------
+    try:
+        numeric_cols = ["open", "high", "low", "close", "volume"]
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
+            else:
+                st.warning(f"⚠️ _prepare_data: Temel sütun eksik: {col}")
+    except Exception as e:
+        st.error(f"🚨 _prepare_data Adım B (Numerik Zorlama) Hatası: {e}")
+        return pd.DataFrame(), []
 
-        # =====================================================================
-        # 2. TEKNİK İNDİKATÖRLER
-        # =====================================================================
+    # -------------------------------------------------------------------------
+    # Adım C: İndikatör Ekleme Kontrolü
+    # -------------------------------------------------------------------------
+    try:
         df = add_indicators(df)
-
-        # =====================================================================
-        # 3. INF / NAN TEMİZLİĞİ
-        # =====================================================================
-        df = df.replace([np.inf, -np.inf], np.nan)
-        df = df.dropna()
-
-        if df.empty:
+        if df is None or df.empty:
+            st.error("🚨 _prepare_data Adım C: add_indicators fonksiyonu boş tablo döndürdü!")
             return pd.DataFrame(), []
+    except Exception as e:
+        st.error(f"🚨 _prepare_data Adım C (add_indicators çağrısı) Çöktü: {e}")
+        return pd.DataFrame(), []
 
-        # =====================================================================
-        # 4. FEATURE LİSTESİ
-        # =====================================================================
+    # -------------------------------------------------------------------------
+    # Adım D: Boşluk Temizleme (dropna) Güvenlik Duvarı
+    # -------------------------------------------------------------------------
+    try:
+        df = df.ffill().bfill()
+        df_test = df.replace([np.inf, -np.inf], np.nan).dropna()
+        if not df_test.empty:
+            df = df_test
+        else:
+            st.warning("⚠️ _prepare_data: .dropna() sonrası tablo boşalacaktı, ffill koruması devreye girdi.")
+    except Exception as e:
+        st.error(f"🚨 _prepare_data Adım D (dropna) Hatası: {e}")
+        return pd.DataFrame(), []
+
+    # -------------------------------------------------------------------------
+    # Adım E: Model Özellikleri (Features) Hizalama
+    # -------------------------------------------------------------------------
+    try:
         features = [] if features is None else list(features)
 
-        # =====================================================================
-        # 5. MODEL UYUMLULUK KONTROLÜ
-        # =====================================================================
         if model is not None and isinstance(model, dict) and "xgb" in model:
-            try:
-                xgb_model = model["xgb"]
+            xgb_model = model["xgb"]
+            if hasattr(xgb_model, "feature_names") and xgb_model.feature_names:
+                features = list(xgb_model.feature_names)
+            elif hasattr(xgb_model, "n_features_in_"):
+                expected_n = xgb_model.n_features_in_
+                if len(features) > expected_n:
+                    features = features[:expected_n]
 
-                # Model feature isimlerini tutuyorsa öncelik ver
-                if hasattr(xgb_model, "feature_names") and xgb_model.feature_names:
-                    features = list(xgb_model.feature_names)
+        features = [str(f).lower().strip() for f in features]
 
-                # Feature sayısını kontrol et
-                elif hasattr(xgb_model, "n_features_in_"):
-                    expected_n = xgb_model.n_features_in_
-                    if len(features) > expected_n:
-                        features = features[:expected_n]
-            except Exception:
-                pass
-
-        # =====================================================================
-        # 6. EKSİK FEATURE OLUŞTUR
-        # =====================================================================
         for feature in features:
             if feature not in df.columns:
                 df[feature] = 0.0
 
-        # =====================================================================
-        # 7. FEATURE DOĞRULAMA
-        # =====================================================================
         valid_features = [f for f in features if f in df.columns]
-
-        if not valid_features:
-            return pd.DataFrame(), []
-
         return df, valid_features
 
-    except Exception:
+    except Exception as e:
+        st.error(f"🚨 _prepare_data Adım E (Feature Yönetimi) Hatası: {e}")
         return pd.DataFrame(), []
 
 
 def _calculate_order_flow(df):
-    price_diff = df["Close"].diff().fillna(0)
-    real_lots = df["Volume"].values
-    diff_vals = price_diff.values
+    """Hisse senedi veri setindeki hacim ve fiyat hareketlerini inceleyerek
+    kurumsal para akışını (Order Flow) hesaplar.
+    """
+    import numpy as np
+    import pandas as pd
 
-    buy_volume = float(np.where(diff_vals > 0, real_lots, 0).sum())
-    sell_volume = float(np.where(diff_vals < 0, real_lots, 0).sum())
-
-    total_volume = buy_volume + sell_volume + 1e-9
-
-    buy_pressure = buy_volume / total_volume
-    sell_pressure = sell_volume / total_volume
-
-    flow_raw = (buy_volume - sell_volume) / total_volume
-    flow_index = np.tanh(flow_raw)
-    flow_signal = flow_raw
+    df = df.copy()
     
-    df_lots = df["Volume"] / (df["Close"] + 1e-9)
-    avg_lots_20 = df_lots.rolling(window=20).mean().iloc[-1]
-    last_lot = df_lots.iloc[-1]
-    last_price_change = price_diff.iloc[-1]
+    # 🌟 1. ADIM: Tabloda sinsice birikmiş mükerrer (duplicate) sütunları tek hamlede ezilerek teke düşürülüyor
+    df = df.loc[:, ~df.columns.duplicated()]
     
-    kalicilik_durumu = "Kalıcı / Dengeli"
-    suni_kod = 0  
+    # Sütun isimlerini küçük harfe normalize et
+    df.columns = [str(col).lower().strip() for col in df.columns]
+
+    # 🌟 2. ADIM: Sütunların birden fazla gelme ihtimaline karşı .iloc ve squeeze() zırhı çekiliyor
+    if "close" in df.columns:
+        # squeeze() eğer hala çoklu sütun kalmışsa onu tek boyuta zorlar, iloc ise ilk yakaladığı close'u alır
+        close_series = df["close"]
+        if isinstance(close_series, pd.DataFrame):
+            close_series = close_series.iloc[:, 0]
+        close_vals = pd.to_numeric(close_series, errors="coerce").ffill().bfill().values
+    else:
+        close_vals = pd.to_numeric(df.iloc[:, 3], errors="coerce").ffill().bfill().values
+
+    if "volume" in df.columns:
+        volume_series = df["volume"]
+        if isinstance(volume_series, pd.DataFrame):
+            volume_series = volume_series.iloc[:, 0]
+        volume_vals = pd.to_numeric(volume_series, errors="coerce").ffill().bfill().values.astype(float)
+    else:
+        volume_vals = pd.to_numeric(df.iloc[:, 4], errors="coerce").ffill().bfill().values.astype(float)
+
+    # -------------------------------------------------------------------------
+    # GERİ KALAN MATEMATİKSEL HESAPLAMA KODLARI AYNEN DEVAM EDİYOR...
+    # -------------------------------------------------------------------------
+    price_diff = np.diff(close_vals)
+    price_diff = np.insert(price_diff, 0, 0.0)
+
+    buy_mask = price_diff > 0
+    sell_mask = price_diff < 0
+
+    buy_volume_total = float(np.sum(volume_vals[buy_mask]))
+    sell_volume_total = float(np.sum(volume_vals[sell_mask]))
+    total_volume_cum = buy_volume_total + sell_volume_total + 1e-9
+
+    buy_pressure = buy_volume_total / total_volume_cum
+    sell_pressure = sell_volume_total / total_volume_cum
+
+    flow_raw = (buy_volume_total - sell_volume_total) / total_volume_cum
+    flow_index = float(np.tanh(flow_raw))
+
+    signed_volume = np.where(price_diff > 0, volume_vals, np.where(price_diff < 0, -volume_vals, 0))
+    signed_series = pd.Series(signed_volume, dtype="float64").reset_index(drop=True)
+
+    flow_smooth = signed_series.rolling(3, min_periods=1).mean().iloc[-1]
+    flow_smooth = 0.0 if pd.isna(flow_smooth) else float(flow_smooth)
+
+    rolling_std = signed_series.rolling(3, min_periods=1).std().iloc[-1]
+    rolling_std = 1e-4 if (pd.isna(rolling_std) or rolling_std < 1e-6) else float(rolling_std)
+
+    flow_smooth_norm = np.tanh(flow_smooth / rolling_std)
+    flow_signal = float(0.6 * flow_index + 0.4 * flow_smooth_norm)
+
+    todays_total_volume = float(volume_vals[-1]) if len(volume_vals) > 0 else 0.0
+
+    buy_volume = float(todays_total_volume * buy_pressure)
+    sell_volume = float(todays_total_volume * sell_pressure)
+
+    vol_series = pd.Series(volume_vals, dtype="float64").reset_index(drop=True)
+    avg_volume_20 = float(vol_series.rolling(20, min_periods=1).mean().iloc[-1])
     
-    if last_price_change > 0 and last_lot < (avg_lots_20 * 0.8):
-        kalicilik_durumu = "⚠️ SUNİ YÜKSELİŞ (Düşük Hacim Tuzak)"
+    last_volume = todays_total_volume
+    last_price_change = float(price_diff[-1]) if len(price_diff) > 0 else 0.0
+    
+    kalicilik_durumu = "🟢 NORMAL"
+    suni_kod = 0
+
+    if last_price_change > 0 and last_volume < avg_volume_20 * 0.70 and buy_pressure < 0.52:
+        kalicilik_durumu = "⚠️ SUNİ YÜKSELİŞ"
         suni_kod = 1
-    elif last_price_change < 0 and last_lot < (avg_lots_20 * 0.8):
-        kalicilik_durumu = "⚠️ SUNİ DÜŞÜŞ (Hacimsiz Silkeleme)"
+    elif last_price_change < 0 and last_volume < avg_volume_20 * 0.70 and sell_pressure < 0.52:
+        kalicilik_durumu = "⚠️ SUNİ DÜŞÜŞ"
         suni_kod = -1
-    elif last_price_change > 0 and last_lot > (avg_lots_20 * 1.3):
-        kalicilik_durumu = "🚀 KALICI YÜKSELİŞ (Hacim Onaylı)"
+    elif last_price_change > 0 and last_volume > avg_volume_20 * 1.30 and buy_pressure > 0.55:
+        kalicilik_durumu = "🚀 HACİM ONAYLI YÜKSELİŞ"
         suni_kod = 2
-        
+
+    if flow_signal <= -0.6:
+        flow_state = "🔴 GÜÇLÜ SATIŞ"
+    elif flow_signal <= -0.2:
+        flow_state = "🟠 SATIŞ BASKISI"
+    elif flow_signal < 0.2:
+        flow_state = "⚪ DENGELİ"
+    elif flow_signal < 0.6:
+        flow_state = "🟢 ALIM BASKISI"
+    else:
+        flow_state = "🚀 AGRESİF ALIM"
+
     return {
-        "buy_volume": buy_volume, "sell_volume": sell_volume,
-        "buy_pressure": buy_pressure, "sell_pressure": sell_pressure,
-        "flow_raw": flow_raw, "flow_index": flow_index, "flow_signal": flow_signal,
-        "kalicilik_durumu": kalicilik_durumu, "suni_kod": suni_kod
+        "buy_volume": buy_volume,
+        "sell_volume": sell_volume,
+        "buy_pressure": buy_pressure,
+        "sell_pressure": sell_pressure,
+        "flow_raw": flow_raw,
+        "flow_index": flow_index,
+        "flow_signal": flow_signal,
+        "flow_smooth": flow_smooth_norm,
+        "flow_state": flow_state,
+        "kalicilik_durumu": kalicilik_durumu,
+        "suni_kod": suni_kod,
     }
 
-def _calculate_smart_money(last, close, flow_signal):
-    rsi = float(last["rsi"])
-    macd = float(last["macd"])
-    macd_signal = float(last["macd_signal"])
-    ma200 = float(last["ma200"])
-    
-    smart = 0
-    if macd > macd_signal: smart += 20
-    if close > ma200: smart += 20
-    if rsi < 50: smart += 10
-    if rsi > 70: smart -= 10
-    if flow_signal > 0: smart += 15
 
-    return float(np.clip(smart, 0, 100))
+def _calculate_smart_money(last, close, flow_signal):
+    """Akıllı para endeksini trend gücü (ADX) ve RSI ile dinamik olarak hesaplar."""
+    import pandas as pd
+    import numpy as np
+
+    # Seri kilitlenmelerini kıran iç fonksiyon
+    def _to_pure_float(val, default=0.0):
+        if val is None:
+            return float(default)
+        if hasattr(val, "values"):
+            if len(val.values) > 0:
+                flat_vals = np.asarray(val.values).ravel()
+                return float(flat_vals[0]) if len(flat_vals) > 0 else float(default)
+            return float(default)
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return float(default)
+
+    # 1. Veri Ayıklama Seansı
+    rsi_raw = None
+    adx_raw = None
+
+    if hasattr(last, "get"):
+        rsi_raw = last.get("rsi") if last.get("rsi") is not None else last.get("RSI")
+        adx_raw = last.get("adx") if last.get("adx") is not None else last.get("ADX")
+    elif isinstance(last, (pd.Series, pd.DataFrame)):
+        last_clean = last.copy()
+        if hasattr(last_clean, "index") and hasattr(last_clean.index, "str"):
+            last_clean.index = last_clean.index.str.lower().str.strip()
+        if "rsi" in last_clean.index:
+            rsi_raw = last_clean["rsi"]
+        if "adx" in last_clean.index:
+            adx_raw = last_clean["adx"]
+
+    # Saf float dönüşümleri
+    rsi = _to_pure_float(rsi_raw, default=50.0)
+    adx = _to_pure_float(adx_raw, default=25.0)
+    flow_val = _to_pure_float(flow_signal, default=0.0)
+
+    # 🌟 2. ADX ENTEGRELİ DİNAMİK SMART MONEY MATEMATİĞİ
+    # Temel Skor: Para akış gücüne dayanır (0 ile 100 arasına yayılır)
+    base_flow_score = 50.0 + (flow_val * 40.0)
+
+    # RSI Dengesi: Aşırı alım/satım bölgelerine göre kurumsal baskı çarpanı
+    rsi_bias = (rsi - 50.0) * 0.3
+
+    # Trend Çarpanı (ADX Kaldıracı): Trend gücü ne kadar yüksekse, 
+    # kurumsal paranın bıraktığı iz (skor) o kadar belirginleşir.
+    # ADX > 25 ise çarpanı büyütür, zayıf trendlerde skoru nötralize (50'ye doğru) eder.
+    if adx > 25:
+        trend_multiplier = 1.2
+    elif adx < 20:
+        trend_multiplier = 0.7
+    else:
+        trend_multiplier = 1.0
+
+    # Nihai Skoru Harmanla
+    smart_money_score = 50.0 + ((base_flow_score + rsi_bias - 50.0) * trend_multiplier)
+    
+    # Skor Sınırlandırması (0-100 dışına taşmasın)
+    smart_money_score = max(0.0, min(100.0, smart_money_score))
+    
+    return float(smart_money_score)
 
 def _determine_regime(adx, rsi, flow_signal):
+    """Piyasa yapısını anahtar kelimelere göre sınıflandırır."""
     if adx > 25 and flow_signal > 0: regime = "TREND_UP"
     elif adx > 25 and flow_signal < 0: regime = "TREND_DOWN"
     elif adx < 18: regime = "SIDEWAYS"
@@ -685,7 +869,6 @@ def _determine_regime(adx, rsi, flow_signal):
          "UNKNOWN": "⚪ Belirsiz"
     }
     return regime_map.get(regime, regime)
-
 
 
 def is_market_open(strict: bool = True) -> bool:
@@ -706,19 +889,29 @@ def is_market_open(strict: bool = True) -> bool:
 
     return pre_open_start <= current_minutes <= market_close
 
+
 def run_mega_radar_analysis(symbol: str, model: dict, features: list) -> dict | None:
-    """Ana analiz motoru.
-    
-    Veriyi indirir, temizler, ön işlemeden geçirir ve XGBoost modeliyle
-    tahmin üreterek sonuçları bir sözlük olarak döndürür.
+    """
+    Ana analiz motoru:
+    - Veri indirir
+    - Temizler (MultiIndex korumalı)
+    - Intraday volume estimation üretir (Leakage-free & Güvenli)
+    - Feature engineering pipeline çalıştırır
+    - XGBoost ile yön/fiyat tahmini yapar
     """
     market_open = is_market_open(strict=True)
 
-    # =====================================================================
-    # 1. VERİ İNDİRME
-    # =====================================================================
+    # =========================================================
+    # SYMBOL CLEANING (Giriş Temizliği)
+    # =========================================================
+    hisse_temiz = symbol.strip().upper().replace(".IS", "")
+    sembol = f"{hisse_temiz}.IS"
+
+    # =========================================================
+    # 1. DATA DOWNLOAD (Veri İndirme)
+    # =========================================================
     df_raw = yf.download(
-        f"{symbol}.IS",
+        sembol,
         period="60d",
         interval="1d",
         progress=False,
@@ -726,49 +919,95 @@ def run_mega_radar_analysis(symbol: str, model: dict, features: list) -> dict | 
     )
 
     if df_raw is None or df_raw.empty:
-        return None
+        df_raw = yf.download(hisse_temiz, period="60d", interval="1d", progress=False, auto_adjust=True)
+        if df_raw is None or df_raw.empty:
+            return None
 
-    # =====================================================================
-    # 2. PIPELINE (TEMİZLİK VE ÖN İŞLEME)
-    # =====================================================================
-    df_clean = _clean_yfinance_df(df_raw)
-    df_prepared, valid_features = _prepare_data(df_clean, features, model)
+    # =========================================================
+    # 2. MULTIINDEX FIX + CLEAN (Çoklu İndeks Temizliği)
+    # =========================================================
+    if hasattr(df_raw.columns, "nlevels") and df_raw.columns.nlevels > 1:
+        df_raw.columns = df_raw.columns.get_level_values(0)
+
+    # Dış bağımlılık fonksiyon güvenliği
+    try:
+        df = _clean_yfinance_df(df_raw).copy()
+    except NameError:
+        df = df_raw.copy()
+
+    # =========================================================
+    # 3. INTRADAY VOLUME ESTIMATION & TIME FEATURE (FIXED)
+    # =========================================================
+    df["estimated_daily_volume"] = df["Volume"].astype(float)
+    df["progress"] = 1.0 
+    progress = 1.0 
+
+    if market_open:
+        now = datetime.now(ZoneInfo("Europe/Istanbul"))
+        market_open_time = now.replace(hour=9, minute=40, second=0, microsecond=0)
+
+        minutes_elapsed = max(0, (now - market_open_time).seconds / 60)
+        progress = min(minutes_elapsed / 390, 1.0)
+
+        df.loc[df.index[-1], "progress"] = progress
+
+        # Daha stabil non-linear gün içi hacim eğrisi (Sinüs düzeltmesi)
+        expected_share = (0.30 * np.sin(np.pi * progress) + 0.70 * progress)
+        expected_share = max(expected_share, 0.05)
+
+        last_idx = df.index[-1]
+        last_volume = float(df["Volume"].iloc[-1])
+        df.loc[last_idx, "estimated_daily_volume"] = last_volume / expected_share
+
+    # =========================================================
+    # 4. FEATURE PIPELINE (İndikatörler & Özellikler)
+    # =========================================================
+    df_prepared, valid_features = _prepare_data(df, features, model)
 
     if df_prepared.empty or not valid_features:
         return None
 
-    # =====================================================================
-    # 3. MODEL KONTROLÜ
-    # =====================================================================
+    # =========================================================
+    # 5. MODEL CHECK (XGBoost Kontrolü)
+    # =========================================================
     if "xgb" not in model or not hasattr(model["xgb"], "predict"):
         return None
 
-    # =====================================================================
-    # 4. LAST ROW (GÜVENLİ HİZALAMA VE REINDEX)
-    # =====================================================================
+    # =========================================================
+    # 6. SAFE LAST ROW (Güvenli Son Satır Hizalaması)
+    # =========================================================
     try:
-        last_row = df_prepared.reindex(columns=valid_features).iloc[[-1]].copy()
-        last_row = last_row.fillna(0)
+        last_row = (
+            df_prepared
+            .reindex(columns=valid_features)
+            .iloc[[-1]]
+            .fillna(0)
+        )
     except Exception:
         return None
 
-    # =====================================================================
-    # 5. PREDICTION (TAHMİN VE TİP DÖNÜŞÜMÜ)
-    # =====================================================================
+    # =========================================================
+    # 7. PREDICTION (Yapay Zeka Tahmini)
+    # =========================================================
     prediction = model["xgb"].predict(last_row)
     pred_value = float(prediction[0]) if hasattr(prediction, "__len__") else float(prediction)
 
+    # =========================================================
+    # 8. OUTPUT (Çıktı Blok Yapısı)
+    # =========================================================
     return {
-        "symbol": symbol,
+        "symbol": hisse_temiz,
         "prediction": pred_value,
-        "market_open": market_open
+        "market_open": market_open,
+        "progress": progress,
+        "estimated_daily_volume": float(df["estimated_daily_volume"].iloc[-1])
     }
+
 
 def no_trade_response():
     return {"signal": "NO_TRADE", "note": "Market closed"}
 
 
-# Sadece ilk satıra , regime_text parametresi eklendi (Hata Çözüldü)
 def _get_market_regime_and_trend(adx, rsi, flow_signal, regime_text):
     """ADX ve RSI değerlerine göre piyasa rejimini ve trend metnini belirler."""
     if adx < 20:
@@ -787,11 +1026,18 @@ def _get_market_regime_and_trend(adx, rsi, flow_signal, regime_text):
         
     return regime, trend_text
 
+
 def _calculate_risk_metrics(df, close, veri_donuk):
     """ATR ve fiyat yapısını hibrit kullanarak destek, direnç ve R/R oranını hesaplar."""
-    atr = ta.volatility.AverageTrueRange(
-        df["High"], df["Low"], df["Close"]
-    ).average_true_range().iloc[-1]
+    try:
+        import ta
+        # Nesne yönelimli ATR çağrısı hatasızlaştırıldı
+        atr_indicator = ta.volatility.AverageTrueRange(
+            high=df["High"], low=df["Low"], close=df["Close"], window=14
+        )
+        atr = atr_indicator.average_true_range().iloc[-1]
+    except Exception:
+        atr = np.nan
 
     risk = 0.01
     reward = 0.01
@@ -813,21 +1059,27 @@ def _calculate_risk_metrics(df, close, veri_donuk):
         reward = abs(direnc - close)
 
         risk = max(risk, 0.001)
-        rr = reward / risk
+        rr = reward / risk if risk > 0 else 1.0
 
     rr = np.clip(rr, 0.0, 5.0)
     return destek, direnc, rr, risk, reward, piyasa_notu
 
 
-def _get_edge_case_comment(rsi, flow_index):
+def _get_edge_case_comment(rsi, flow_index, regime):
     """RSI ve Para Akışı uç durumlarına göre kritik uyarı mesajı üretir."""
-    edge_comment = "🟢 Normal piyasa koşulu. "
+    if "Düşüş" in regime:
+        edge_comment = "🔴 Satış baskısının hakim olduğu piyasa koşulu. "
+    elif "Yükseliş" in regime:
+        edge_comment = "🚀 Alıcıların hakim olduğu piyasa koşulu. "
+    else:
+        edge_comment = "🟢 Normal piyasa koşulu. "
+
     if rsi < 25 and flow_index < 0:
-        edge_comment = "⚠️ Aşırı satım + para çıkışı devam ediyor. Panik satış / trend devam riski var. "
+        edge_comment += "⚠️ Aşırı satım + para çıkışı devam ediyor. Panik satış / trend devam riski var."
     elif rsi < 25 and flow_index > 0:
-        edge_comment = "🟢 Aşırı satım + para girişi var. Rebound ihtimali artıyor. "
+        edge_comment += "🟢 Aşırı satım + para girişi var. Rebound ihtimali artıyor."
     elif rsi > 70 and flow_index < 0:
-        edge_comment = "⚠️ Aşırı alım + dağıtım riski oluşuyor. "
+        edge_comment += "⚠️ Aşırı alım + dağıtım riski oluşuyor."
     return edge_comment
 
 
@@ -862,7 +1114,6 @@ def _calculate_scores_and_signal(proba, smart_money, rsi, flow_index, regime, re
 
     score = np.clip(score, 0, 1)
 
-    # Sinyal Seçimi
     if score >= 0.80:
         signal, color = "🚀 ÇOK GÜÇLÜ AL", "#00C853"
     elif score >= 0.70:
@@ -881,545 +1132,845 @@ def _calculate_scores_and_signal(proba, smart_money, rsi, flow_index, regime, re
     return score, signal, color
 
 
-def _generate_ai_comment(signal, edge_comment, trend_text, flow, dynamic_stop, dynamic_tp, destek, direnc):
-    """Oluşan sinyallere ve piyasa rejimine göre nihai yapay zeka yorumunu oluşturur."""
-    if signal in ["🚀 ÇOK GÜÇLÜ AL", "🟢 AL"]:
+def _generate_ai_comment(signal, edge_comment, trend_text, flow,
+                         dynamic_stop, dynamic_tp, destek, direnc,
+                         adx=None, rsi=None, flow_signal=None):
+    
+    if any(buy_sig in signal for buy_sig in ["🚀 ÇOK GÜÇLÜ AL", "🟢 AL"]):
         return (
             f"{edge_comment}"
-            f"Hisse net bir {trend_text} içerisinde ve güçlü teknik yapı sergiliyor. "
-            f"Alıcı baskısı (%{flow['buy_pressure']*100:.1f}) devam ediyor. "
-            f"Stop-loss: {dynamic_stop:.2f}, hedef: {dynamic_tp:.2f}."
+            f"Hisse {trend_text} içerisinde güçlü görünüm sergiliyor. "
+            f"Alıcı baskısı %{flow['buy_pressure'] * 100:.1f}. "
+            f"Stop: {dynamic_stop:.2f} | Hedef: {dynamic_tp:.2f}"
         )
-    elif signal == "🟡 İZLE (POTANSİYEL AL)":
+
+    elif "POTANSİYEL AL" in signal:
         return (
             f"{edge_comment}"
-            f"Hisse {trend_text} içerisinde. Alıcı baskısı %{flow['buy_pressure']*100:.1f}. "
-            f"Direnç seviyesi {dynamic_tp:.2f} yakın, dikkatli takip gerekli."
+            f"Trend tamamen bozulmuş değil. "
+            f"Alıcı baskısı %{flow['buy_pressure'] * 100:.1f}. "
+            f"Direnç bölgesi dikkatle takip edilmeli."
         )
-    elif signal == "🟡 İZLE":
+
+    elif "İZLE" in signal:
         return (
             f"{edge_comment}"
-            f"Piyasa {trend_text}. Sıkışma devam ediyor. "
-            f"Destek {destek:.2f} / direnç {direnc:.2f} izlenmeli."
+            f"Piyasada kararsızlık mevcut. "
+            f"Destek {destek:.2f} / Direnç {direnc:.2f} takip edilmeli."
         )
-    elif signal == "⚪ NÖTR":
+
+    elif "NÖTR" in signal:
+        if "Düşüş" in trend_text:
+            return (
+                f"{edge_comment}"
+                f"Trend aşağı yönlü ancak satış baskısı henüz güçlü SAT sinyali oluşturacak seviyede değil. "
+                f"Yeni alım için erken, mevcut pozisyonlar destek bölgesi izlenerek yönetilmeli."
+            )
+        elif "Yükseliş" in trend_text:
+            return (
+                f"{edge_comment}"
+                f"Trend yukarı yönlü ancak momentum zayıflamış durumda. Direnç kırılımı beklenmeli."
+            )
         return (
             f"{edge_comment}"
-            f"Yönsüz piyasa ({trend_text}). Net kırılım beklenmeli."
+            f"Piyasa yön arayışında. Net kırılım beklenmeli."
         )
     else:
         return (
             f"{edge_comment}"
-            f"Satış baskısı güçlü (%{flow['sell_pressure']*100:.1f}). "
-            f"Risk yönetimi ön planda."
+            f"Satış baskısı güçlü (%{flow['sell_pressure'] * 100:.1f}). "
+            f"Risk yönetimi ön planda tutulmalı."
         )
+
+
+def institutional_signal_engine(
+    df: pd.DataFrame,
+    adx: float,
+    rsi: float,
+    flow_signal: float,
+    buy_pressure: float,
+    sell_pressure: float,
+    close: float,
+    flow_index: float = 0.0,
+    smart_money: float = 50.0,
+    fake_rally: bool = False,
+) -> dict:
+    """Kurumsal Para Akışı, Trend Rejimi ve Sinyal Üretim Motoru.
+
+    Gelişmiş risk cezaları, dinamik boğa/ayı/nötr trend rejim yönetimi,
+    normalize edilmiş güven endeksi, dengelenmiş trend gücü, trend eğilimi
+    koruma filtreleri ve ayı piyasası kesin bloklama kalkanı içerir.
+    """
+
+    # =====================================================
+    # 1. VOLATİLİTE HESAPLAMA
+    # =====================================================
+    volatility = df["Close"].pct_change().rolling(10).std().iloc[-1]
+    if np.isnan(volatility):
+        volatility = 0.0
+
+    # =====================================================
+    # 2. DİNAMİK REJİM BELİRLEME (GRI ALAN FİLTRELİ)
+    # =====================================================
+    if adx >= 30:
+        if flow_index > 0.10:
+            regime = "BOĞA_TREND"  # Net para girişiyle desteklenen yükseliş trendi
+        elif flow_index < -0.10:
+            regime = "AYI_TREND"   # Net para çıkışıyla kesinleşen düşüş trendi
+        else:
+            regime = "TREND"        # Güçlü ama para akışı yönünden nötr/kararsız trend
+    elif adx <= 20:
+        regime = "YATAY"           # Menzil içi konsolidasyon (Range)
+    else:
+        regime = "GEÇİŞ"           # Kararsız / Kurulum bölgesi
+
+    # =====================================================
+    # 3. HAM ALT SKORLAR (0 - 100 NORMALİZASYONU)
+    # =====================================================
+    trend_score = np.clip(adx * 2.0, 0, 100)
+    momentum_score = np.clip(100 - abs(rsi - 55) * 2.5, 0, 100)
+
+    # flow_signal (-1 ile +1) aralığını 0-100 arasına lineer çeker
+    flow_signal = np.clip(flow_signal, -1.0, 1.0)
+    flow_score = np.clip(
+        (((flow_signal + 1) / 2) * 70 + buy_pressure * 30), 0, 100
+    )
+    smart_money_score = np.clip(smart_money, 0, 100)
+
+    # =====================================================
+    # 4. REJİME GÖRE DİNAMİK AĞIRLIKLANDIRMA
+    # =====================================================
+    if regime == "BOĞA_TREND" or regime == "TREND":
+        w_trend, w_flow, w_smart, w_momentum = 0.35, 0.30, 0.20, 0.15
+        
+    elif regime == "AYI_TREND":
+        w_trend, w_flow, w_smart, w_momentum = 0.20, 0.40, 0.30, 0.10
+        
+    elif regime == "YATAY":
+        w_trend, w_flow, w_smart, w_momentum = 0.15, 0.30, 0.25, 0.30
+        
+    else:  # GEÇİŞ
+        w_trend, w_flow, w_smart, w_momentum = 0.25, 0.30, 0.25, 0.20
+
+    # Ağırlıklı ham skor hesaplama
+    score = (
+        trend_score * w_trend
+        + flow_score * w_flow
+        + smart_money_score * w_smart
+        + momentum_score * w_momentum
+    )
+
+    # =====================================================
+    # 5. RİSK CEZALARI (MARKET RISK PENALTIES)
+    # =====================================================
+    spread_risk = abs(buy_pressure - sell_pressure)
+    risk_penalty = 0
+
+    if volatility > 0.05:
+        risk_penalty += 12
+    elif volatility > 0.03:
+        risk_penalty += 6
+
+    if spread_risk > 0.35:
+        risk_penalty += 10
+    elif spread_risk > 0.20:
+        risk_penalty += 5
+
+    score -= risk_penalty
+
+    # =====================================================
+    # 6. SİSTEMİK BONUSLAR (INSTITUTIONAL SUPPORT)
+    # =====================================================
+    bonus = 0
+    if smart_money > 80:
+        bonus += 12
+    elif smart_money > 70:
+        bonus += 8
+    elif smart_money > 60:
+        bonus += 4
+
+    if flow_index > 0.30:
+        bonus += 8
+    elif flow_index > 0.15:
+        bonus += 4
+
+    score += bonus
+
+    # =====================================================
+    # 7. YAPISAL CEZALAR (MAL DAĞITIM VE TUZAK FİLTRELERİ)
+    # =====================================================
+    penalty = 0
+
+    if smart_money < 40:
+        penalty += 12
+    elif smart_money < 50:
+        penalty += 6
+
+    if flow_index < -0.30:
+        penalty += 10
+    elif flow_index < -0.15:
+        penalty += 5
+
+    # --- Kurumsal Kaçış Kombinasyonları ---
+    if smart_money < 40 and flow_index < -0.15:
+        penalty += 15
+
+    if flow_index < -0.20 and buy_pressure < 0.45:
+        penalty += 10
+
+    # Yalancı yükseliş cezaları
+    if fake_rally:
+        penalty += 10
+
+    if fake_rally and flow_index < 0:
+        penalty += 10
+
+    score -= penalty
+
+    # --- Trend Eğilimi Cezası (Trend Bias Penalty) ---
+    if regime == "AYI_TREND" and score > 75:
+        score -= 10
+
+    score = float(np.clip(score, 0, 100))
+
+    # =====================================================
+    # 8. CONFIDENCE (GÜVEN) HESAPLAMA
+    # =====================================================
+    adx_score = min(100.0, adx * 2.0)
     
+    flow_conf = ((flow_signal + 1) / 2) * 100
+    flow_conf = np.clip(flow_conf, 0, 100)
     
+    vol_conf = np.clip(100 - volatility * 1000, 0, 100)
+
+    confidence = (
+        adx_score * 0.30 +
+        flow_conf * 0.30 +
+        smart_money * 0.25 +
+        vol_conf * 0.15
+    )
+
+    if fake_rally:
+        confidence -= 10
+
+    confidence = float(np.clip(confidence, 0, 100))
+
+    # =====================================================
+    # 9. TREND GÜCÜ VE METİNSEL ANLAMLADIRMA
+    # =====================================================
+    flow_component = max(0.0, flow_index) * 100.0
+
+    trend_power = (
+        adx_score * 0.45 +
+        flow_component * 0.30 +
+        smart_money * 0.25
+    )
+    if fake_rally:
+        trend_power -= 10
+    trend_power = float(np.clip(trend_power, 0, 100))
+    if trend_power >= 80:
+        trend_text = "🟢 Çok Güçlü Trend"
+    elif trend_power >= 60:
+        trend_text = "🟡 Güçlü Trend"
+    elif trend_power >= 35:
+        trend_text = "⚪ Kararsız"
+    else:
+        trend_text = "🔴 Zayıf Trend"
+
+    # =====================================================
+    # 10. UYUMSUZLUK (DIVERGENCE) TESPİTİ
+    # =====================================================
+    divergence = "YOK"
+    if rsi < 40 and flow_signal > 0:
+        divergence = "🟢 Yükseliş Uyumsuzluğu"
+    elif rsi > 65 and flow_signal < 0:
+        divergence = "🔴 Düşüş Uyumsuzluğu"
+
+    # =====================================================
+    # 11. MATRİS SİNYAL ÜRETİMİ (ÇİFT KATMANLI GÜVEN FİLTRELİ)
+    # =====================================================
+    if confidence < 20:
+        signal = "⚪ BEKLE"
+    elif confidence < 35 and score >= 75:
+        signal = "⚪ BEKLE"
+    elif score >= 85:
+        signal = "🚀 MEGA AL"
+    elif score >= 75:
+        signal = "🟢 GÜÇLÜ AL"
+    elif score >= 60:
+        signal = "🟡 AL"
+    elif score >= 45:
+        signal = "⚪ BEKLE"
+    elif score >= 30:
+        signal = "🟠 SAT"
+    else:
+        signal = "🔴 GÜÇLÜ SAT"
+
+    # --- AYI PİYASASI HARD BLOCK KALKANI (YENİ EKLEME) ---
+    # Rejim net bir düşüş trendiyse, agresif alım sinyalleri kesin olarak engellenir
+    if regime == "AYI_TREND" and signal in ["🚀 MEGA AL", "🟢 GÜÇLÜ AL"]:
+        signal = "⚪ BEKLE"
+
+    return {
+        "sinyal": signal,
+        "skor": round(score, 2),
+        "güven": round(confidence, 2),
+        "trend_gucu": round(trend_power, 2),
+        "rejim": regime,
+        "trend_text": trend_text,
+        "trend_skoru": round(trend_score, 2),
+        "momentum_skoru": round(momentum_score, 2),
+        "akış_skoru": round(flow_score, 2),
+        "smart_money": round(smart_money, 2),
+        "uyumsuzluk": divergence,
+        "volatilite": round(volatility * 100, 2),
+    }
+
+def get_grade(score):
+    if score >= 85: return "A+"
+    elif score >= 75: return "A"
+    elif score >= 65: return "B"
+    elif score >= 50: return "C"
+    elif score >= 35: return "D"
+    else: return "F"   
+
+
+def final_decision(signal, exit_signal):
+    """Sinyal içeriğindeki emojileri ve karmaşık yapıları güvenli algılar."""
+    if exit_signal == "SAT":
+        return "🔴 SAT (RİSK KORUMA)"
+    
+    # "AL" veya "🚀 MEGA AL" gibi durumları esnek yakalamak için 'in' eklendi
+    if "SAT" in signal and exit_signal == "TUT":
+        return "⚪ BEKLE (KARARSIZ)"
+        
+    return "🟢 POZİSYONU KORU" if "AL" in signal else "⚪ NÖTR"
+
+
+def _get_empty_result():
+    return {
+        "price": 0.0, "rsi": 0.0, "adx": 0.0,
+        "flow": 0.0, "flow_raw": 0.0, "flow_signal": 0.0,
+        "buy_volume": 0.0, "sell_volume": 0.0,
+        "buy_pressure": 0.0, "sell_pressure": 0.0,
+        "smart_money": 0.0, "guven_skoru": 0.0,
+        "rr": 1.0, "score": 0.0, "final_score": 0.0,
+        "grade": "N/A", "signal": "⚠️ VERİ YETERSİZ", "color": "#757575",
+        "destek": 0.0, "direnc": 0.0,
+        "regime": "Bilinmiyor", "trend_text": "Veri Yetersiz", "piyasa_notu": "Yetersiz Veri",
+        "stop_loss": 0.0, "take_profit": 0.0,
+        "stock_score": 0.0, "hisse_karnesi": 0.0, "flow_index": 0.0,
+        "ai_comment": "Teknik analiz ve yapay zeka modellerinin çalışabilmesi için daha fazla geçmiş bar oluşması beklenmelidir.",
+        "strategy_action": "BEKLE/SAT",
+        "kalicilik_durumu": "⚠️ VERİ YETERSİZ (Hacim Analizi Yapılamadı)",
+        "suni_hareket": "⚠️ VERİ YETERSİZ",
+        "suni_kod": 0,
+        "kar_koruma_skoru": 0, "kar_koruma_durumu": "N/A", "tepe_skoru": 0,
+        "tepe_bolgesi_durumu": "N/A", "zirve_yorgunlugu": "N/A", "gun_ici_alarm": "N/A",
+        "exit_strategy_action": "BEKLE/SAT", "exit_strategy_comment": "Veri Yetersiz"
+    }
+
+
 
 def analyze(df, model, features, symbol="THYAO"):
-    """
-    Gelişmiş yapay zeka ve sipariş akışı (order flow) entegrasyonlu 
-    hisse senedi analiz motoru. (Production-Safe & Live Consistent)
-    """
-    
-    # -------------------------------------------------------------------------
-    # 1. DATA GUARD (Öncelikli Veri Kontrolü)
-    # -------------------------------------------------------------------------
-    if df is None or len(df) < 30:
-        return _get_empty_result()
-
-    df, features = _prepare_data(df, features, model)
-    if df.empty:
-        return _get_empty_result()
-
-    # -------------------------------------------------------------------------
-    # 2. LIVE PRICE & SEANS SONU GÜVENLİK YAMASI (Her Zaman Çalışmalı)
-    # -------------------------------------------------------------------------
-    live_price = None
-    try:
-        # Seans açıksa anlık fiyatı çekmeyi dene
-        live_price = get_live_price(symbol)
-    except Exception:
-        live_price = None
-
-    # 💡 KRİTİK DÜZELTME: Seans kapalıysa, gün içi 5m barlarındaki yfinance kaymasını 
-    # engellemek için günlük (1d) resmi kapanışı çekip canlı fiyat olarak belirliyoruz.
-    if not is_market_open():
-        try:
-            yf_symbol = f"{symbol}.IS" if not symbol.endswith(".IS") else symbol
-            df_daily = yf.download(yf_symbol, period="1d", interval="1d", auto_adjust=True, progress=False)
-            if not df_daily.empty:
-                resmi_kapanis = float(df_daily["Close"].iloc[-1])
-                if resmi_kapanis > 0:
-                    live_price = resmi_kapanis
-        except Exception:
-            pass
-
-    # DataFrame'in son barını gerçek fiyata göre manipüle ediyoruz
-    if live_price is not None and live_price > 0:
-        close = float(live_price)
-        idx = df.index[-1]
-        df.loc[idx, "Close"] = close
+    # Streamlit Arayüzünde Teşhis Başlığı Açıyoruz (İncelemek istersen genişletebilirsin)
+    with st.expander(f"🔍 {symbol} Veri Akış ve Teşhis Raporu", expanded=False):
+        st.markdown("### 🛠️ Arka Plan Veri Denetimi")
         
-        # High/Low sınırlarını yeni fiyata göre koruyoruz
-        if close > df.loc[idx, "High"]: df.loc[idx, "High"] = close
-        if close < df.loc[idx, "Low"]:  df.loc[idx, "Low"] = close
-    else:
-        close = float(df.iloc[-1]["Close"])
+        # -------------------------------------------------------------------------
+        # 1. DATA GUARD & ILK KONTROL
+        # -------------------------------------------------------------------------
+        if df is None or len(df) < 30:
+            st.error("❌ HATA: DataFrame boş veya 30 bardan az veri geliyor!")
+            return _get_empty_result()
 
-    base_last = df.iloc[-1].copy()
+        st.info(f"1. Adım: Veri tabanından gelen ham satır sayısı: **{len(df)}**")
+        
+        # Ana DataFrame bozulmasın diye kopyalıyoruz
+        df = df.copy()
+
+        # 🌟 MULTI-INDEX VE TUPLE SÜTUN ZIRHI
+        # Eğer yfinance sütunları çok katmanlı getirdiyse en üst katmanı (Open, High, Close) alıyoruz
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
+        # Eğer sütun isimleri Tuple kalmışsa ("Close", "TUREX.IS") sadece ilk elemanı alıyoruz
+        cleaned_cols = []
+        for col in df.columns:
+            if isinstance(col, tuple):
+                cleaned_cols.append(str(col[0]).lower().strip())
+            else:
+                cleaned_cols.append(str(col).lower().strip())
+        df.columns = cleaned_cols
+        
+        # Gerekli temel sütunları float tipine zorluyoruz
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
+            else:
+                # EĞER HÂLÂ BULAMADIYSA: Sırasıyla eşleştirmeyi dene (0: open, 1: high, 2: low, 3: close)
+                st.warning(f"⚠️ Kritik sütun '{col}' isimle bulunamadı, pozisyonel eşleştirme yapılıyor.")
+                if col == 'open' and len(df.columns) > 0: df.rename(columns={df.columns[0]: 'open'}, inplace=True)
+                elif col == 'high' and len(df.columns) > 1: df.rename(columns={df.columns[1]: 'high'}, inplace=True)
+                elif col == 'low' and len(df.columns) > 2: df.rename(columns={df.columns[2]: 'low'}, inplace=True)
+                elif col == 'close' and len(df.columns) > 3: df.rename(columns={df.columns[3]: 'close'}, inplace=True)
+
+        # Son bir kez garanti kontrol
+        if 'close' not in df.columns:
+            st.error("🚨 KRİTİK HATA: Sütunlar hiçbir şekilde 'close' olarak eşleştirilemedi! Mevcut Sütunlar: " + str(list(df.columns)))
+            return _get_empty_result()
+                
+        st.write(f"2. Adım: Temizlik sonrası ilk ham kapanış fiyatı: `{df['close'].iloc[-1]}`")
+
+        # -------------------------------------------------------------------------
+        # 🚨 KRİTİK EŞİK: PREPARE DATA KONTROLÜ
+        # -------------------------------------------------------------------------
+        try:
+            df, features = _prepare_data(df, features, model)
+            if df is None or df.empty:
+                st.error("❌ HATA: `_prepare_data` fonksiyonu veri setini tamamen sıfırladı/boşalttı!")
+                return _get_empty_result()
+            
+            # Sütunları tekrar standartlaştırıyoruz (prepare_data sonrası için de geçerli)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df.columns = [str(col).lower().strip() for col in df.columns]
+            features = [f.lower() for f in features]
+            
+            st.success(f"3. Adım: `_prepare_data` sonrası satır sayısı: **{len(df)}**")
+            st.write(f"4. Adım: Yapay zeka hazırlığı sonrası fiyat durumu: `{df['close'].iloc[-1]}`")
+            
+        except Exception as e:
+            st.error(f"❌ HATA: `_prepare_data` fonksiyonu çalışırken çöktü! Hata: {e}")
+
+        # Eğer son satır NaN (boşluk) ürettiyse önceki satırlarla dolduruyoruz (Sıfırlanma Önleyici)
+        df = df.ffill().bfill()
+        
+        
+        
+
+        # -------------------------------------------------------------------------
+        # 2. LIVE PRICE (Canlı Fiyat Entegrasyonu)
+        # -------------------------------------------------------------------------
+        live_price = None
+        try:
+            live_price = get_live_price(symbol)
+        except Exception:
+            live_price = None
+
+        if not is_market_open():
+            try:
+                yf_symbol = f"{symbol}.IS" if not symbol.endswith(".IS") else symbol
+                df_daily = yf.download(
+                    yf_symbol, period="1d", interval="1d", auto_adjust=True, progress=False,
+                )
+                if not df_daily.empty:
+                    if isinstance(df_daily.columns, pd.MultiIndex):
+                        df_daily.columns = df_daily.columns.get_level_values(0)
+                    df_daily.columns = [str(c).lower().strip() for c in df_daily.columns]
+                    live_price = float(df_daily["close"].iloc[-1])
+            except Exception:
+                pass
+
+        if live_price and live_price > 0:
+            close = float(live_price)
+            idx = df.index[-1]
+            df.loc[idx, "close"] = close
+            
+            current_high = float(df.loc[idx, "high"].iloc[0]) if hasattr(df.loc[idx, "high"], "iloc") else float(df.loc[idx, "high"])
+            current_low = float(df.loc[idx, "low"].iloc[0]) if hasattr(df.loc[idx, "low"], "iloc") else float(df.loc[idx, "low"])
+            
+            df.loc[idx, "high"] = max(current_high, close)
+            df.loc[idx, "low"] = min(current_low, close)
+        else:
+            close = float(df["close"].iloc[-1])
+
+        st.metric(label="5. Adım: Analize Giren Net Kapanış Fiyatı", value=f"{close} ₺")
+        base_last = df.iloc[-1].copy()
+
+        # 🌟 ZIRH KODUNU TAM BURAYA, BASE_LAST'IN HEMEN ALTINA YAPIŞTIR:
+        clean_last_dict = {}
+        for col in list(df.columns):
+            col_lower = str(col).lower().strip()
+            val = base_last[col]
+            try:
+                import numpy as np
+                if hasattr(val, "values"):
+                    flat_vals = np.asarray(val.values).ravel()
+                    pure_val = float(flat_vals[0]) if len(flat_vals) > 0 else float(df['close'].iloc[-1])
+                else:
+                    pure_val = float(val)
+            except:
+                pure_val = float(df['close'].iloc[-1])
+                
+            clean_last_dict[col_lower] = pure_val
+            clean_last_dict[str(col).strip()] = pure_val
+        
+        # Orijinal base_last nesnesini güvenli sözlükle değiştiriyoruz
+        base_last = clean_last_dict
+
+        # -------------------------------------------------------------------------
+        # 3. MODEL PREDICTION (XGBoost & LightGBM Ensemble)
+        # -------------------------------------------------------------------------
+        proba = 0.5
+        try:
+            valid_features = [f for f in features if f in df.columns]
+            if len(valid_features) == len(features):
+                X = df[features].iloc[-1:].values
+                probs = []
+                xgb_model = model.get("xgb", None) if isinstance(model, dict) else None
+                if xgb_model is not None and hasattr(xgb_model, "predict_proba"):
+                    try: comps = xgb_model.predict_proba(X); probs.append(float(comps[0][1]))
+                    except Exception: pass
+
+                lgbm_model = model.get("lgbm", None) if isinstance(model, dict) else None
+                if lgbm_model is not None and hasattr(lgbm_model, "predict_proba"):
+                    try: comps = lgbm_model.predict_proba(X); probs.append(float(comps[0][1]))
+                    except Exception: pass
+
+                if len(probs) > 0:
+                    proba = sum(probs) / len(probs)
+            else:
+                st.warning("⚠️ Bazı yapay zeka model özellikleri (features) DataFrame'de eksik!")
+        except Exception:
+            proba = 0.5
+
+        proba = float(np.clip(proba, 0.05, 0.95))
+
+        # -------------------------------------------------------------------------
+        # 4. INDICATORS (Güvenli Hesaplama Katmanı)
+        # -------------------------------------------------------------------------
+     
+        try:
+            # Sütunları küçük harfe zorla çağırdığımızdan emin ol
+            adx_series = ta.trend.ADXIndicator(
+                high=df["high"], low=df["low"], close=df["close"], fillna=True
+            ).adx()
+            adx = float(adx_series.iloc[-1]) if not pd.isna(adx_series.iloc[-1]) else 25.0
+            
+            rsi_series = ta.momentum.RSIIndicator(close=df["close"], fillna=True).rsi()
+            rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
+        except Exception as e:
+            adx = 25.0
+            rsi = 50.0
+    # -------------------------------------------------------------------------
+    # 4.5 SÜTUN UYUMSUZLUK KÖPRÜSÜ (GÜVENLİ VERSİYON)
+    # -------------------------------------------------------------------------
+    # Yinelenen sütunları temizle (duplicate columns varsa ilkini korur)
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    # Alt fonksiyonlar hem küçük hem büyük harf arayabilsin diye sözlükle eşliyoruz
+    # Tablodaki mevcut sütunların Capitalize (İlk harfi büyük) versiyonlarını klonluyoruz
+    existing_cols = list(df.columns)
+    for col in existing_cols:
+        cap_col = str(col).capitalize().strip()
+        low_col = str(col).lower().strip()
+        
+        # Eğer tabloda küçük harflisi var ama büyük harflisi yoksa, güvenle ekle
+        if cap_col not in df.columns:
+            df[cap_col] = df[col]
+        # Eğer büyük harflisi var ama küçük harflisi yoksa, güvenle ekle
+        if low_col not in df.columns:
+            df[low_col] = df[col]
 
     # -------------------------------------------------------------------------
-    # 3. MARKET GUARD (Arayüz Esnekliği İçin Konumu Değiştirildi)
+    # 5. FLOW & SMART MONEY
     # -------------------------------------------------------------------------
-    if not is_market_open():
-        # Gece/hafta sonu arayüzün kilitlenmemesi ve son analizi basması için pass geçiyoruz.
-        pass
+    flow = get_hybrid_flow(symbol, df)
+    flow_index = float(flow.get("flow_index", 0.0))
+    smart_money = float(calculate_hybrid_smart_money(symbol, close, flow.get("flow_signal", flow_index), last=base_last))
 
     # -------------------------------------------------------------------------
-    # 4. MODEL INPUT (Yeni Fiyata Göre Tam Tutarlı)
+    # 6. SMART SCORE
     # -------------------------------------------------------------------------
-    X = df[features].iloc[-1:].values
-
-    # Hibrit Model Olasılık Hesaplaması (XGBoost + LightGBM Ensemble)
-    try:
-        proba_xgb = model["xgb"].predict_proba(X)[0][1]
-        proba_lgbm = model["lgbm"].predict_proba(X)[0][1]
-        proba = (proba_xgb + proba_lgbm) / 2
-    except Exception:
-        proba = 0.5  # Güvenli fallback
+    smart_score = (proba * 100 * 0.4 + (flow_index + 1) * 20 + (50 - abs(rsi - 50)) * 0.4)
+    smart_score = float(np.clip(smart_score, 0, 100))
 
     # -------------------------------------------------------------------------
-    # 5. INDICATORS (Güncellenen Fiyat Üzerinden Yeniden Hesaplama)
+    # 7. ENGINE & SIGNALS
     # -------------------------------------------------------------------------
-    adx_series = ta.trend.ADXIndicator(df["High"], df["Low"], df["Close"]).adx()
-    adx = float(adx_series.iloc[-1]) if len(adx_series) and not pd.isna(adx_series.iloc[-1]) else 25.0
-
-    rsi_series = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
-    rsi = float(rsi_series.iloc[-1]) if len(rsi_series) and not pd.isna(rsi_series.iloc[-1]) else 50.0
-
-    # -------------------------------------------------------------------------
-    # 6. ORDER FLOW & SCORE GENERATION
-    # -------------------------------------------------------------------------
-    flow = _calculate_order_flow(df)
-    smart_money = float(_calculate_smart_money(base_last, close, flow["flow_signal"]))
-
-    # Güven Skoru: %60 Yapay Zeka Olasılığı + %40 Akıllı Para Hacim Dengesi
-    guven_skoru = float(np.clip(proba * 100 * 0.60 + smart_money * 0.40, 0, 100))
-
-    # -------------------------------------------------------------------------
-    # 7. REGIME + TREND
-    # -------------------------------------------------------------------------
-    regime_text = _determine_regime(adx, rsi, flow["flow_signal"])
-    regime, trend_text = _get_market_regime_and_trend(
-        adx, rsi, flow["flow_signal"], regime_text
+    engine = institutional_signal_engine(
+        df=df, adx=adx, rsi=rsi,
+        flow_signal=flow.get("flow_signal", 0),
+        buy_pressure=flow.get("buy_pressure", 0.0),
+        sell_pressure=flow.get("sell_pressure", 0.0),
+        close=close, flow_index=flow_index, smart_money=smart_money
     )
 
-    # -------------------------------------------------------------------------
-    # 8. KALICILIK DURUMU (Karakteristik Analiz)
-    # -------------------------------------------------------------------------
-    flow_index = float(flow["flow_index"])
-
-    if adx < 20 and flow_index < -0.1:
-        kalicilik_durumu = "⚪ Zayıf / Yatay"
-    elif adx > 25 and flow_index > 0.2:
-        kalicilik_durumu = "🚀 KALICI YÜKSELİŞ"
-    elif adx > 25 and flow_index < -0.2:
-        kalicilik_durumu = "🔴 DAĞILIM / ZAYIFLAMA"
-    elif adx < 20 and abs(flow_index) < 0.1:
-        kalicilik_durumu = "⚪ SIKIŞMA / KARARSIZ"
-    else:
-        kalicilik_durumu = "⚪ DENGELİ"
+    score = engine.get("skor", 50.0)
+    signal = engine.get("sinyal", "BEKLE").replace("NEUTRAL", "BEKLE").replace("⚪ BEKLE", "BEKLE")
+    color = "#90A4AE"
+    
+    
 
     # -------------------------------------------------------------------------
-    # 9. RISK ENGINE
+    # 8. FINAL MAPPING & OUTPUT
     # -------------------------------------------------------------------------
-    veri_donuk = bool(df["Close"].tail(20).nunique() <= 1)
+    stock_score = float(np.clip(score * 0.40 + smart_money * 0.30, 0, 100))
+    final_score = float(np.clip(score * 0.60 + smart_money * 0.25, 0, 100))
+    grade = get_grade(stock_score)
+
     destek, direnc, rr, risk, reward, piyasa_notu = _calculate_risk_metrics(
-        df, close, veri_donuk
+        df, close, bool(df["close"].tail(20).nunique() <= 1)
     )
 
-    # -------------------------------------------------------------------------
-    # 10. EDGE CASES
-    # -------------------------------------------------------------------------
-    edge_comment = _get_edge_case_comment(rsi, flow_index)
-    if 45 <= rsi <= 55 and abs(flow_index) < 0.05:
-        edge_comment = "⚪ Düşük volatilite / sıkışma bölgesi."
-
-    # -------------------------------------------------------------------------
-    # 11. SCORE & SIGNAL ENGINE
-    # -------------------------------------------------------------------------
-    score, signal, color = _calculate_scores_and_signal(
-        proba, smart_money, rsi, flow_index, regime, regime_text, flow["buy_pressure"]
-    )
-
-    # -------------------------------------------------------------------------
-    # 12. METRICS GENERATION (Karne Yapısı)
-    # -------------------------------------------------------------------------
-    stock_score = float(np.clip(score * 40 + (smart_money / 100) * 30 + min(rr / 3, 1) * 30, 0, 100))
-    final_score = float(np.clip(score * 60 + (smart_money / 100) * 25 + (rr / 5) * 15, 0, 100))
-
-    grade = (
-        "A+" if final_score >= 85 else
-        "A" if final_score >= 75 else
-        "B" if final_score >= 65 else "C"
-    )
-
-    # -------------------------------------------------------------------------
-    # 13. DYNAMIC STOP / TAKE PROFIT
-    # -------------------------------------------------------------------------
-    volatility_ratio = risk / close
-    dynamic_stop = float(close * 0.95 if volatility_ratio < 0.02 else destek)
-    dynamic_tp = float(close * 1.05 if (reward / close < 0.02) else direnc)
-
-    # -------------------------------------------------------------------------
-    # 14. EXIT STRATEGY (Erken Çıkış Sistemi Parametreleri)
-    # -------------------------------------------------------------------------
     gunluk_getiri = 0.0
     if len(df) >= 2:
-        prev = float(df["Close"].iloc[-2])
-        if prev > 0:
-            gunluk_getiri = float(((close - prev) / prev) * 100)
-
-    ma50_val = (
-        float(base_last["ma50"])
-        if pd.notna(base_last.get("ma50"))
-        else close
-    )
+        prev_close = float(df["close"].iloc[-2])
+        if prev_close > 0: gunluk_getiri = ((close - prev_close) / prev_close) * 100
 
     exit_data = calculate_exit_strategy(
-        price=close,
-        rsi=rsi,
-        buy_pressure=float(flow["buy_pressure"]),
-        flow_signal=float(flow["flow_signal"]),
-        ma50=ma50_val,
-        gunluk_getiri=gunluk_getiri,
-        direnc=float(direnc)
+        price=close, rsi=rsi, buy_pressure=float(flow.get("buy_pressure", 0.0)),
+        flow_signal=float(flow.get("flow_signal", flow_index)),
+        ma50=float(base_last.get("ma50", close)),
+        gunluk_getiri=gunluk_getiri, direnc=float(direnc), destek=float(destek)
     )
-
-    # -------------------------------------------------------------------------
-    # 15. AI STRATEGY COMMENT GENERATION
-    # -------------------------------------------------------------------------
-    ai_comment = _generate_ai_comment(
-        signal, edge_comment, trend_text, flow, dynamic_stop, dynamic_tp, destek, direnc
-    )
-
-    # -------------------------------------------------------------------------
-    # 16. OUTPUT DIRECTORY (Strict Type Casting & Streamlit Safe)
-    # -------------------------------------------------------------------------
-    return {
-        # Gerçek Resmi Fiyatlar ve İndikatörler
-        "price": float(close),
-        "rsi": float(rsi),
-        "adx": float(adx),
-
-        # Piyasa Eğilimleri
-        "regime": str(regime_text),
-        "trend_text": str(trend_text),
-        "kalicilik_durumu": str(kalicilik_durumu),
-        "piyasa_notu": str(piyasa_notu),
-
-        # Emir Akışı Detayları
-        "flow": float(flow_index),
-        "flow_index": float(flow_index),
-        "flow_raw": float(flow["flow_raw"]),
-        "flow_signal": float(flow["flow_signal"]),
-        "buy_volume": int(flow["buy_volume"]),
-        "sell_volume": int(flow["sell_volume"]),
-        "buy_pressure": float(flow["buy_pressure"]),
-        "sell_pressure": float(flow["sell_pressure"]),
-        "smart_money": float(smart_money),
-        "suni_kod": int(flow.get("suni_kod", 0)),
-        
-        # Algoritmik Skorlar ve Kararlar
-        "guven_skoru": float(guven_skoru),
-        "rr": float(rr),
-        "score": float(score),
-        "final_score": float(final_score),
-        "grade": str(grade),
-        "signal": str(signal),
-        "color": str(color),
-
-        # Risk Yönetimi Hatları
-        "destek": float(destek),
-        "direnc": float(direnc),
-        "stop_loss": float(dynamic_stop),
-        "take_profit": float(dynamic_tp),
-
-        # Hisse Puanlama ve Eylem Planı
-        "stock_score": float(stock_score),
-        "hisse_karnesi": float(stock_score),
-        "strategy_action": str(
-            "YAKIN İZLE" if "İZLE" in signal
-            else ("AL" if "AL" in signal else "BEKLE/SAT")
-        ),
-
-        # Yorum Katmanları
-        "ai_comment": str(ai_comment),
-        "edge_comment": str(edge_comment),
-
-        # Tepe ve Erken Çıkış Algoritması Çıktıları
-        "kar_koruma_skoru": float(exit_data.get("kar_koruma_skoru", 0)),
-        "kar_koruma_durumu": str(exit_data.get("kar_koruma_durumu", "🟢 Pozisyonu Koru / Tut")),
-        "tepe_skoru": float(exit_data.get("tepe_skoru", 0)),
-        "tepe_bolgesi_durumu": str(exit_data.get("tepe_bolgesi_durumu", "🟢 Normal Bölge")),
-        "zirve_yorgunlugu": str(exit_data.get("zirve_yorgunlugu", "🟢 Normal")),
-        "gun_ici_alarm": str(exit_data.get("gun_ici_alarm", "🟢 Normal")),
-        "exit_strategy_action": str(exit_data.get("exit_strategy_action", "BEKLE/SAT")),
-        "exit_strategy_comment": str(exit_data.get("exit_strategy_comment", ""))
-    }
-######=========================================================================
-#   Grafik Ekranı
-#####=========================================================================
-def create_technical_chart(df, result):
-
-    # Orijinal df'i korumak ve kolon hatalarını önlemek için kopyalıyoruz
-    df_chart = add_indicators(df.copy())
     
-    # MACD Histogram hesaplamasını güvenli bir şekilde df_chart üzerinde yapıyoruz
-    df_chart["macd_hist"] = df_chart["macd"] - df_chart["macd_signal"]
+    result = {
+        "price": close, 
+        # ... diğer tüm verilerin ...
+        "trend_power": float((adx * 0.6) + (abs(rsi - 50) * 0.8)), # Trend power burada tanımlı
+        # ... diğer verilerin ...
+    }
 
-    # Matris yapısını kuruyoruz
+    # 3. İŞLEMİ TAMAMLA VE DÖN:
+    empty_template = _get_empty_result()
+    for k, default_val in empty_template.items():
+        if k not in result or result[k] is None:
+            result[k] = default_val   
+    
+    # MACD hesaplaması (Yoksa ekle ki grafik hata vermesin)
+    if 'macd' not in df.columns:
+        df['macd'] = 0.0
+        df['macd_signal'] = 0.0
+        df['macd_hist'] = 0.0
+
+    result = {
+        "price": close, "rsi": rsi, "adx": adx, "flow_index": flow_index, "flow": flow_index,
+        "flow_raw": flow.get("flow_raw", 0.0), "flow_signal": flow.get("flow_signal", 0.0),
+        "buy_pressure": flow.get("buy_pressure", 50.0), "sell_pressure": flow.get("sell_pressure", 50.0),
+        "buy_volume": float(flow.get("buy_volume", 0.0)), "sell_volume": float(flow.get("sell_volume", 0.0)),
+        "smart_money": smart_money, "smart_score": smart_score, "smart_signal": signal,
+        "smart_confidence": engine.get("güven", 50), "market_regime": engine.get("rejim", "Normal"),
+        "regime": engine.get("rejim", "Normal"), "trend_text": engine.get("trend_text", "Dengeli"),
+        "divergence": engine.get("uyumsuzluk", "YOK"), "score": score, "final_score": final_score,
+        "stock_score": stock_score, "hisse_karnesi": stock_score, "grade": grade, "color": color, "signal": signal,
+        "destek": destek, "direnc": direnc, "rr": rr, "piyasa_notu": piyasa_notu if piyasa_notu else "Normal Rejim",
+        "trend_power": engine.get("trend_gucu", 0),
+        "stop_loss": exit_data.get("stop_loss", 0.0), "take_profit": exit_data.get("take_profit", 0.0),
+        "suni_hareket": flow.get("kalicilik_durumu", "🟢 NORMAL"), "kalicilik_durumu": flow.get("kalicilik_durumu", "🟢 NORMAL"),
+        "suni_kod": flow.get("suni_kod", 0),
+        "strategy_action": "AL" if "AL" in signal else "SAT" if "SAT" in signal else "BEKLE",
+        "exit_strategy_action": exit_data.get("exit_strategy_action", "BEKLE"),
+        "exit_strategy_comment": exit_data.get("exit_strategy_comment", ""), "exit_strategy": exit_data,
+        "guven_skoru": engine.get("güven", 50), "ai_comment": "Analiz tamamlandı. Yapay zeka skorları üretildi.",
+        "kar_koruma_skoru": exit_data.get("kar_koruma_skoru", 0), "kar_koruma_durumu": exit_data.get("kar_koruma_durumu", "N/A"),
+        "tepe_skoru": exit_data.get("tepe_skoru", 0), "tepe_bolgesi_durumu": exit_data.get("tepe_bolgesi_durumu", "N/A"),
+        "zirve_yorgunlugu": exit_data.get("zirve_yorgunlugu", "N/A"), "gun_ici_alarm": exit_data.get("gun_ici_alarm", "N/A")
+    }
+
+    empty_template = _get_empty_result()
+    for k, default_val in empty_template.items():
+        if k not in result or result[k] is None:
+            result[k] = default_val
+
+    return result
+
+def create_technical_chart(df):
+    """Teknik analiz grafiğini güvenli ve harf duyarsız şekilde oluşturur."""
+    import pandas as pd
+    
+    if df is None or df.empty:
+        return None
+
+    # 🌟 GRAFİK KİLİTLENMESİNİ ÖNLEN KISIM:
+    df_chart = df.copy()
+    # --- GÜVENLİK DUVARI: Eksik sütunları 0'la doldur ---
+    required_cols = ['macd', 'macd_signal', 'macd_hist', 'ma50', 'ma200', 'rsi']
+    for col in required_cols:
+        if col not in df_chart.columns:
+            df_chart[col] = 0.0
+    
+    # Mükerrer sütunlar varsa hemen temizle
+    df_chart = df_chart.loc[:, ~df_chart.columns.duplicated()]
+    
+    # Eğer yfinance kaynaklı Multi-Index kalmışsa temizle
+    if isinstance(df_chart.columns, pd.MultiIndex):
+        df_chart.columns = df_chart.columns.get_level_values(0)
+        
+    # Sütunları küçük harfe çekerek standartlaştırıyoruz
+    df_chart.columns = [str(col).lower().strip() for col in df_chart.columns]
+
+    # Fonksiyonun içindeki tüm df_chart["Close"], df_chart["Open"] vb. çağrılarını 
+    # güvenle karşılasın diye büyük harfli klonlarını oluşturuyoruz
+    df_chart["Close"] = pd.to_numeric(df_chart["close"], errors="coerce")
+    if "open" in df_chart.columns: df_chart["Open"] = pd.to_numeric(df_chart["open"], errors="coerce")
+    if "high" in df_chart.columns: df_chart["High"] = pd.to_numeric(df_chart["high"], errors="coerce")
+    if "low" in df_chart.columns: df_chart["Low"] = pd.to_numeric(df_chart["low"], errors="coerce")
+    if "volume" in df_chart.columns: df_chart["Volume"] = pd.to_numeric(df_chart["volume"], errors="coerce")
+    
+    df_chart["MACD"] = pd.to_numeric(df_chart.get("macd", 0), errors="coerce")
+    df_chart["MACD_Signal"] = pd.to_numeric(df_chart.get("macd_signal", 0), errors="coerce")
+    df_chart["MACD_Hist"] = pd.to_numeric(df_chart.get("macd_hist", 0), errors="coerce")
+    
+    # Boşlukları doldur ki grafik çizgilerinde kopukluk olmasın
+    df_chart = df_chart.ffill().bfill()
+    # Hareketli Ortalamalar (MA) Kontrolü (Yeni halka arzlar için min_periods eklendi)
+    if "ma50" not in df_chart.columns: 
+        df_chart["ma50"] = df_chart["Close"].rolling(50, min_periods=1).mean()
+        
+    if "ma200" not in df_chart.columns: 
+        df_chart["ma200"] = df_chart["Close"].rolling(200, min_periods=1).mean()
+
+    # RSI Kontrolü
+    if "rsi" not in df_chart.columns: 
+        df_chart["rsi"] = 50
+
+    # --- 2. 4 PANELLİ SUBPLOT YAPISI VE ORANLAMASI ---
+    # Plotly'de row_width dizisi EN ALT PANELİN (Row 4) yüksekliğinden başlayarak yukarı doğru sıralanır!
+    # [Row 4 Yüksekliği, Row 3 Yüksekliği, Row 2 Yüksekliği, Row 1 Yüksekliği]
     fig = make_subplots(
-        rows=4,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03, # Paneller arası boşluk hafif artırıldı (daha temiz görünüm)
-        row_heights=[0.50, 0.15, 0.15, 0.20],
-        subplot_titles=("Fiyat Grafiği", "Hacim", "RSI (Göreceli Güç Endeksi)", "MACD")
+        rows=4, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.04,  # Paneller arası boşluk oranlandı
+        row_width=[0.20, 0.15, 0.15, 0.50]  # Sıralama düzeltildi: MACD(%20), RSI(%15), Hacim(%15), Mumlar(%50)
     )
 
-    # =========================
-    # CANDLESTICK (Mum Grafiği)
-    # =========================
+    # --- PANEL 1: ANA MUM GRAFİĞİ VE MA ÇİZGİLERİ ---
     fig.add_trace(
         go.Candlestick(
             x=df_chart.index,
-            open=df_chart["Open"],
-            high=df_chart["High"],
-            low=df_chart["Low"],
-            close=df_chart["Close"],
-            name="Fiyat",
-            increasing_line_color='#26a69a', # Profesyonel TradingView yeşili
-            decreasing_line_color='#ef5350'  # Profesyonel TradingView kırmızısı
-        ),
-        row=1, col=1
-    )
-
-    # =========================
-    # MA50 (Hareketli Ortalama)
-    # =========================
-    fig.add_trace(
-        go.Scatter(
-            x=df_chart.index,
-            y=df_chart["ma50"],
-            mode="lines",
-            name="MA50",
-            line=dict(color='#ff9800', width=1.5) # Turuncu tonu
-        ),
-        row=1, col=1
+            open=df_chart['Open'],
+            high=df_chart['High'],
+            low=df_chart['Low'],
+            close=df_chart['Close'],
+            name="Fiyat (Candle)",
+            increasing_line_color='#00E676', # Canlı Yeşil
+            decreasing_line_color='#FF5252'  # Canlı Kırmızı
+        ), row=1, col=1
     )
     
-    # =========================
-    # MA200 (Hareketli Ortalama)
-    # =========================
+    # MA 50 Çizgisi
     fig.add_trace(
         go.Scatter(
-            x=df_chart.index,
-            y=df_chart["ma200"],
-            mode="lines",
-            name="MA200",
-            line=dict(color='#2196f3', width=2) # Mavi tonu
-        ),
-        row=1, col=1
+            x=df_chart.index, y=df_chart['ma50'],
+            line=dict(color='#29B6F6', width=1.5), # Mavi
+            name="MA 50"
+        ), row=1, col=1
     )
     
-    # =========================
-    # ALIM / SATIM OKLARI (Kesişim Mantığı ile Profesyonelleştirildi)
-    # =========================
-    # Sadece ilk kesişim (crossover/crossunder) anlarında sinyal üretmek için .shift() eklendi.
-    # Böylece her gün ok basmak yerine sadece sinyalin ilk geldiği güne tek bir ok basılır.
-    macd_cross_up = (df_chart["macd"] > df_chart["macd_signal"]) & (df_chart["macd"].shift(1) <= df_chart["macd_signal"].shift(1))
-    macd_cross_down = (df_chart["macd"] < df_chart["macd_signal"]) & (df_chart["macd"].shift(1) >= df_chart["macd_signal"].shift(1))
-
-    buy_signal = macd_cross_up & (df_chart["rsi"] < 70)
-    sell_signal = macd_cross_down & (df_chart["rsi"] > 30)
-
-    # Alım işaretleri (Yeşil Yukarı Ok)
+    # MA 200 Çizgisi
     fig.add_trace(
         go.Scatter(
-            x=df_chart.index[buy_signal],
-            y=df_chart["Low"][buy_signal] * 0.98, # Okların mumun altında düzgün görünmesi için %2 ofset
-            mode="markers",
-            marker=dict(
-                symbol="triangle-up",
-                size=14,
-                color="#00e676",
-                line=dict(color="#003300", width=1)
-            ),
-            name="AL Sinyali"
-        ),
-        row=1, col=1
-    )
-    
-    # Satım işaretleri (Kırmızı Aşağı Ok)
-    fig.add_trace(
-        go.Scatter(
-            x=df_chart.index[sell_signal],
-            y=df_chart["High"][sell_signal] * 1.02, # Okların mumun üstünde düzgün görünmesi için %2 ofset
-            mode="markers",
-            marker=dict(
-                symbol="triangle-down",
-                size=14,
-                color="#ff1744",
-                line=dict(color="#330000", width=1)
-            ),
-            name="SAT Sinyali"
-        ),
-        row=1, col=1
+            x=df_chart.index, y=df_chart['ma200'],
+            line=dict(color='#FFCA28', width=2), # Altın Sarısı
+            name="MA 200"
+        ), row=1, col=1
     )
 
-    # =========================
-    # HACİM (Volume)
-    # =========================
-    # Profesyonel görünüm için mum rengine göre hacim barlarını renklendiriyoruz
-    volume_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(df_chart["Open"], df_chart["Close"])]
+    # --- PANEL 2: HACİM (VOLUME) ---
+    volume_colors = [
+        '#00E676' if close >= open_val else '#FF5252' 
+        for open_val, close in zip(df_chart['Open'], df_chart['Close'])
+    ]
     
     fig.add_trace(
         go.Bar(
-            x=df_chart.index,
-            y=df_chart["Volume"],
-            name="Hacim",
+            x=df_chart.index, y=df_chart['Volume'],
             marker_color=volume_colors,
-            opacity=0.7
-        ),
-        row=2, col=1
-    )
-    
-    # =========================
-    # RSI PANELİ
-    # =========================
-    fig.add_trace(
-        go.Scatter(
-            x=df_chart.index,
-            y=df_chart["rsi"],
-            mode="lines",
-            name="RSI",
-            line=dict(color='#9c27b0', width=1.5) # Mor RSI çizgisi
-        ),
-        row=3, col=1
+            opacity=0.7,
+            name="Hacim"
+        ), row=2, col=1
     )
 
-    # RSI Sınır Çizgileri
-    fig.add_hline(y=70, row=3, col=1, line_dash="dot", line_color="rgba(255,255,255,0.3)")
-    fig.add_hline(y=30, row=3, col=1, line_dash="dot", line_color="rgba(255,255,255,0.3)")
-    fig.update_yaxes(range=[10, 90], row=3, col=1) # Eksen sınırları optimize edildi
-    
-    # =========================
-    # MACD PANELİ & HİSTOGRAM
-    # =========================
+    # --- PANEL 3: RSI ---
     fig.add_trace(
         go.Scatter(
-            x=df_chart.index,
-            y=df_chart["macd"],
-            name="MACD",
-            line=dict(color='#2196f3', width=1.5)
-        ),
-        row=4, col=1
+            x=df_chart.index, y=df_chart['rsi'],
+            line=dict(color='#E040FB', width=2), # Mor
+            name="RSI (14)"
+        ), row=3, col=1
     )
+    
+    # RSI 30 ve 70 Referans Çizgileri
+    fig.add_shape(type="line", x0=df_chart.index[0], x1=df_chart.index[-1], y0=70, y1=70,
+                  line=dict(color="rgba(255, 82, 82, 0.4)", width=1, dash="dash"), row=3, col=1)
+    fig.add_shape(type="line", x0=df_chart.index[0], x1=df_chart.index[-1], y0=30, y1=30,
+                  line=dict(color="rgba(0, 230, 118, 0.4)", width=1, dash="dash"), row=3, col=1)
 
+    # --- PANEL 4: MACD ---
+    # MACD Çizgisi
     fig.add_trace(
         go.Scatter(
-            x=df_chart.index,
-            y=df_chart["macd_signal"],
-            name="Sinyal",
-            line=dict(color='#ff9800', width=1.5)
-        ),
-        row=4, col=1
+            x=df_chart.index, y=df_chart['macd'],
+            line=dict(color='#29B6F6', width=1.5),
+            name="MACD"
+        ), row=4, col=1
     )
     
-    # Histogram Barları (Pozitif/Negatif renk ayrımı ile)
-    hist_colors = ['#26a69a' if val >= 0 else '#ef5350' for val in df_chart["macd_hist"]]
+    # Sinyal Çizgisi
+    fig.add_trace(
+        go.Scatter(
+            x=df_chart.index, y=df_chart['macd_signal'],
+            line=dict(color='#FF9100', width=1.5), # Turuncu
+            name="Sinyal"
+        ), row=4, col=1
+    )
+    
+    # MACD Histogramı
+    hist_colors = ['#00E676' if val >= 0 else '#FF5252' for val in df_chart['macd_hist']]
     fig.add_trace(
         go.Bar(
-            x=df_chart.index,
-            y=df_chart["macd_hist"],
-            name="Histogram",
+            x=df_chart.index, y=df_chart['macd_hist'],
             marker_color=hist_colors,
-            opacity=0.6
-        ),
-        row=4, col=1
+            name="Histogram"
+        ), row=4, col=1
     )
 
-    # =========================
-    # FİNANSAL SEVİYELER (Destek, Direnç, SL, TP)
-    # =========================
-    line_styles = {
-        "destek": dict(color="#26a69a", dash="dot"),
-        "direnc": dict(color="#ef5350", dash="dot"),
-        "stop_loss": dict(color="#ff1744", dash="dash"),
-        "take_profit": dict(color="#00e676", dash="dash")
-    }
-    
-    labels = {"destek": "Destek", "direnc": "Direnç", "stop_loss": "Stop Loss (SL)", "take_profit": "Take Profit (TP)"}
-
-    for key, style in line_styles.items():
-        if key in result and result[key] is not None:
-            fig.add_hline(
-                y=result[key],
-                row=1, col=1,
-                line_dash=style["dash"],
-                line_color=style["color"],
-                annotation_text=f"{labels[key]}: {result[key]:.2f}",
-                annotation_position="top left",
-                annotation_font=dict(color=style["color"], size=10)
-            )
-
-    # =========================
-    # SON FİYAT ETİKETİ
-    # =========================
-    son_fiyat = float(df_chart["Close"].iloc[-1])
-    fig.add_annotation(
-        x=df_chart.index[-1],
-        y=son_fiyat,
-        text=f"Son: {son_fiyat:.2f}",
-        showarrow=True,
-        arrowhead=2,
-        arrowcolor="#ffffff",
-        ax=-50, ay=-30,
-        font=dict(color="#ffffff", size=11),
-        bgcolor="rgba(0,0,0,0.7)",
-        bordercolor="#ffffff",
-        borderwidth=1,
-        row=1, col=1
-    )
-
-    # =========================
-    # GÖRÜNÜM VE LAYOUT (Birleştirildi, Çelişkiler Giderildi)
-    # =========================
-    fig.update_yaxes(title_text="Fiyat ($)", row=1, col=1)
-    fig.update_yaxes(title_text="Hacim", row=2, col=1)
-    fig.update_yaxes(title_text="RSI", row=3, col=1)
-    fig.update_yaxes(title_text="MACD", row=4, col=1)
-
+    # --- 3. GRAFİK YÖNETİMİ VE STİL AYARLARI ---
     fig.update_layout(
-        template="plotly_dark",
-        height=1000, # İdeal ve dengeli bir yükseklik ayarlandı
-        hovermode="x unified",
-        xaxis_rangeslider_visible=False,
+        template="plotly_dark", 
+        height=800,             # Mobil ve masaüstü dengeli dikey boyut
+        margin=dict(l=55, r=20, t=30, b=30),
         showlegend=True,
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=1.02,
             xanchor="right",
-            x=1,
-            font=dict(size=10)
+            x=1
         ),
-        margin=dict(l=50, r=50, t=70, b=50) # Grafik kenar boşlukları optimize edildi
+        hovermode="x unified"    # Dikey imleç takibi aktif
     )
 
+    # Dikey Eksen Başlıkları
+    fig.update_yaxes(title_text="Fiyat", row=1, col=1)
+    fig.update_yaxes(title_text="Hacim", row=2, col=1)
+    fig.update_yaxes(title_text="RSI", row=3, col=1)
+    fig.update_yaxes(title_text="MACD", row=4, col=1)
+
+    # CRITICAL FIX: Range slider'ı ve tarih çakışmalarını tüm alt panellerde kapatıyoruz
+    fig.update_xaxes(rangeslider_visible=False)
+
     return fig
+
+
+    # -------------------------------------------------------------------------
+    # Bundan sonrası senin mevcut grafik çizim kodların (Aynen devam ediyor):
+    # Örn: df_chart["ma50"] = df_chart["Close"].rolling(50, min_periods=1).mean()
+    # -------------------------------------------------------------------------
+
+
+def safe_float(val):
+    """Null/None korumalı float dönüştürücü."""
+    if val is None:
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+    
+
 
 # ==============================================================================
 # 4. STREAMLIT MASAÜSTÜ UYGULAMA PANELİ (MANTIK VE CSS KORUNDU)
@@ -1427,73 +1978,97 @@ def create_technical_chart(df, result):
 if IS_STREAMLIT:    
     st.set_page_config(page_title="Masaüstü Borsa", layout="wide")
     
-    # --- CSS PANEL ---
+    # --- CSS PANEL (GÜVENLİ VE MOBİL UYUMLU) ---
     st.markdown("""
         <style>
-        .stApp { background-color: #121212; color: #FFFFFF; }
-        div[data-testid="stExpander"] { background-color: #1E1E1E; border: 1px solid #2D2D2D; border-radius: 10px; }
-        div.stFormSubmitButton > button { background-color: #007BFF !important; color: white !important; width: 100% !important; }
+        /* Ana Arka Plan ve Yazı Rengi */
+        .stApp { 
+            background-color: #121212; 
+            color: #FFFFFF; 
+        }
         
+        /* Expander İç Alan Tasarımları */
+        div[data-testid="stExpander"] { 
+            background-color: #1E1E1E; 
+            border: 1px solid #2D2D2D; 
+            border-radius: 10px; 
+        }
+        
+        /* Form Gönderim Butonları */
+        div.stFormSubmitButton > button { 
+            background-color: #007BFF !important; 
+            color: white !important; 
+            width: 100% !important; 
+            border-radius: 8px !important;
+        }
+        
+        /* GENEL BUTON TASARIMI */
         div.stButton > button { 
             background-color: #007BFF !important; 
             color: white !important;
-            font-size: 12.5px !important; 
+            font-size: 14px !important; 
             white-space: nowrap !important; 
-            padding: 8px 10px !important;
+            padding: 10px 16px !important;
             font-weight: bold !important;
+            border-radius: 8px !important;
+            border: none !important;
+            transition: background-color 0.2s ease;
+        }
+        div.stButton > button:hover {
+            background-color: #0056b3 !important;
         }
         
+        /* Üst Boşluk Optimizasyonu */
         [data-testid="stMainBlockContainer"] {
             padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
         }
         
+        /* Kaydırılabilir Tablo/Liste Alanı */
         .scrollable-container {
             max-height: 380px !important;
             overflow-y: auto !important;
             padding-right: 5px;
         }
         
-        div[data-testid="stHorizontalBlock"] div.stButton > button {
-            width: 16px !important;
-            height: 16px !important;
-            min-width: 16px !important;
-            min-height: 16px !important;
-            padding: 0px !important;
-            font-size: 9px !important;
-            line-height: 16px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            border-radius: 4px !important;
-            margin-top: 10px !important;
+        /* Özel Silme Butonu Rengi */
+        div.stButton > button[key^="global_delete_btn"] { 
+            background-color: #E74C3C !important; 
+            color: white !important; 
+        }
+        div.stButton > button[key^="global_delete_btn"]:hover { 
+            background-color: #c0392b !important; 
+        }
+
+        /* Checkbox Hizalaması */
+        div[data-testid="stCheckbox"] { 
+            margin-top: 8px !important; 
+        }
+
+        /* Popover Tasarımları */
+        div[data-testid="stPopover"] button { 
             background-color: #2D2D2D !important;
-            border: none !important;
+            border: 1px solid #444444 !important; 
+            color: #00F0FF !important;
+            border-radius: 6px !important;
         }
-
-        div[data-testid="stCheckbox"] {
-            margin-top: 8px !important;
+        div[data-testid="stPopoverBody"] button { 
+            background: none !important; 
+            color: white !important; 
+            text-align: left !important; 
+            width: 100% !important; 
         }
-
-        div.stButton > button[key^="global_delete_btn"] {
-            background-color: #E74C3C !important;
-            color: white !important;
+        div[data-testid="stPopoverBody"] button:hover { 
+            background-color: #007BFF !important; 
         }
-
-        div[data-testid="stPopover"] button {
-            width: 35px !important; height: 26px !important; background-color: #2D2D2D !important;
-            border: 1px solid #444444 !important; color: #00F0FF !important;
-        }
-        div[data-testid="stPopoverBody"] button {
-            background: none !important; color: white !important; text-align: left !important; width: 100% !important;
-        }
-        div[data-testid="stPopoverBody"] button:hover { background-color: #007BFF !important; }
         </style>
     """, unsafe_allow_html=True)
-       
 
+    tr_zamanı = datetime.now(ZoneInfo("Europe/Istanbul")).strftime('%H:%M:%S')
     st.title("🖥️ Borsa")
-    st.caption(f"⏱️ Canlı takip tablosu 60 saniyede bir otomatik güncellenir. Son Yenilenme: {pd.Timestamp.now().strftime('%H:%M:%S')}")
-
+    st.caption(f"⏱️ Canlı takip tablosu 60 saniyede bir otomatik güncellenir. Son Yenilenme: {tr_zamanı}")
+    
+   
     if "menü_aktif_hisse" not in st.session_state:
         st.session_state["menü_aktif_hisse"] = None
     if "grafik_goster" not in st.session_state:
@@ -1533,60 +2108,46 @@ if IS_STREAMLIT:
         </style>
     """, unsafe_allow_html=True)
     
-    
-
     with sekme2:
-        # Otomatik yenileme motoru
+        # Otomatik yenileme motoru (60 saniye)
         st_autorefresh(interval=60000, key="refresh_sekme2")
 
-        # =====================================================================
-        # 0. SESSION STATE (HAFIZA) BAŞLANGIÇ TANIMLARI
-        # =====================================================================
         if "aktif_hisse" not in st.session_state:
             st.session_state.aktif_hisse = ""
 
         # =====================================================================
-        # 1. AKILLI ARAMA FORMU (Kutuyu Enter'dan Sonra Temizleyen Yapı)
+        # 1. AKILLI ARAMA FORMU
         # =====================================================================
         with st.form(key="hisse_arama_formu", clear_on_submit=True):
             hisse_input = st.text_input("Hisse Senedi Kodu (Örn: THYAO, TUREX):")
             submit_button = st.form_submit_button("🔍 Analiz Et", use_container_width=False)
             
             if submit_button and hisse_input:
-                # Kutudan gelen veriyi temizleyip hafızaya alıyoruz
                 st.session_state.aktif_hisse = hisse_input.strip().upper()
 
         # =====================================================================
-        # 2. ANA ÇALIŞMA BLOKU (Hafızada aktif bir hisse varsa çalışır)
+        # 2. ANA ÇALIŞMA BLOKU
         # =====================================================================
         if st.session_state.aktif_hisse:
             hisse_kodu = st.session_state.aktif_hisse
             
-            # Kullanıcının manuel .IS yazma ihtimaline karşı akıllı temizlik (Örn: TUREX.IS.IS faciasını önler)
             if hisse_kodu.endswith(".IS"):
                 hisse_temiz = hisse_kodu.replace(".IS", "")
             else:
                 hisse_temiz = hisse_kodu
                 
             sembol = f"{hisse_temiz}.IS"
-            
-            # Kullanıcıya şu an hangi hissenin analizini gördüğünü hatırlatan etiket
             st.caption(f"🔎 Şu an incelenen hisse: **{sembol}**")
 
-            # Piyasa durumuna göre esnek ve hatasız veri çekme stratejisi
             market_active = is_market_open(strict=True)
 
             if market_active:
-                # Gündüz seansı: Son 5 günün 5 dakikalık barları
                 p_time, i_time = "5d", "5m"
             else:
-                # Akşam seansı: İndikatörlerin ve ML modelinin çökmemesi için en az 1 yıllık günlük veri
                 p_time, i_time = "1y", "1d"
                 
-            # 1. Deneme: Standart .IS uzantısı ile veri çekme
             df_st = get_live_data(sembol, period=p_time, interval=i_time)
 
-            # 2. Deneme (Bariyer): Eğer yfinance .IS ile boş döndüyse, uzantısız dene
             if df_st is None or df_st.empty:
                 df_st = get_live_data(hisse_temiz, period=p_time, interval=i_time)
                 if df_st is not None and not df_st.empty:
@@ -1594,42 +2155,32 @@ if IS_STREAMLIT:
 
             model_st = load_model()
 
-            # KONTROL BARIYERI: Veri seti veya model boşsa arayüzü patlatma
             if df_st is None or df_st.empty:
                 st.error(f"❌ {sembol} için veri çekilemedi. Lütfen kodu veya internet bağlantınızı kontrol edin.")
             elif model_st is None:
                 st.error("❌ Yapay zeka modeli sistemden yüklenemedi.")
             else:
-                # Modeli ve veriyi ana analiz motoruna gönderiyoruz
                 result = analyze(df_st, model_st, MODEL_FEATURES, symbol=hisse_temiz)
                 
                 if not result:
                     st.warning("⚠️ Analiz motoru bu hisse için sonuç üretemedi.")
                 else:
-                    # =============================================================
-                    # ⏱️ CANLI GÜNCELLENME SAATİ
-                    # =============================================================
+                    # Zaman Damgası Paneli
                     su_an = datetime.now(ZoneInfo("Europe/Istanbul")).strftime("%H:%M:%S")
                     st.markdown(f"""
-                    <div style="
-                        background-color: #1E1E1E; padding: 10px; border-radius: 8px; 
-                        border-left: 5px solid #2196f3; margin-bottom: 20px;">
+                    <div style="background-color: #1E1E1E; padding: 10px; border-radius: 8px; border-left: 5px solid #2196f3; margin-bottom: 20px;">
                         ⏱️ <b>Son Güncellenme Zamanı:</b> <span style="color: #2196f3; font-weight: bold;">{su_an}</span> 
                         <span style="font-size: 12px; color: #888888; margin-left: 10px;">(Kutu temizlendi, arka plan takibi aktif)</span>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # =============================================================
-                    # 🚦 HAREKET KALICILIK & TUZAK DEDEKTÖRÜ
-                    # =============================================================
+                    # Kalıcılık ve Tuzak Dedektörü
                     suni_kod = result.get("suni_kod", 0)
                     status_color = "#4CAF50" if suni_kod == 2 else ("#FF9800" if suni_kod in [1, -1] else "#90A4AE")
                     status_bg = "rgba(76, 175, 80, 0.1)" if suni_kod == 2 else ("rgba(255, 152, 0, 0.1)" if suni_kod in [1, -1] else "rgba(144, 164, 174, 0.1)")
 
                     st.markdown(f"""
-                    <div style="
-                        background-color: {status_bg}; padding: 15px; border-radius: 12px; 
-                        border: 1px solid {status_color}; border-left: 6px solid {status_color}; margin-bottom: 25px;">
+                    <div style="background-color: {status_bg}; padding: 15px; border-radius: 12px; border: 1px solid {status_color}; border-left: 6px solid {status_color}; margin-bottom: 25px;">
                         <span style="font-size: 14px; color: #888888; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Hacim ve Trend Doğrulama</span>
                         <div style="font-size: 20px; font-weight: 700; color: white; margin-top: 5px;">
                             {result.get('kalicilik_durumu', 'Veri Yok')}
@@ -1637,25 +2188,14 @@ if IS_STREAMLIT:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # =============================================================
-                    # 🎯 KÂR KORUMA & ERKEN SATIŞ DİSİPLİNİ (Tepe Dedektörü)
-                    # =============================================================
+                    # Erken Çıkış & Tepe Analizi
                     tepe_skoru = result.get("tepe_skoru", 0)
-                    if tepe_skoru <= 25:
-                        exit_color = "#4CAF50"
-                    elif tepe_skoru <= 50:
-                        exit_color = "#FFEB3B"
-                    elif tepe_skoru <= 75:
-                        exit_color = "#FF9800"
-                    else:
-                        exit_color = "#F44336"
+                    exit_color = "#4CAF50" if tepe_skoru <= 25 else ("#FFEB3B" if tepe_skoru <= 50 else ("#FF9800" if tepe_skoru <= 75 else "#F44336"))
                         
                     tavsiye_aksiyon = result.get('exit_strategy_action', result.get('exit_action', 'TUT'))
 
                     st.markdown(f"""
-                    <div style="
-                        background-color: #1A1A1A; padding: 18px; border-radius: 12px; 
-                        border: 1px solid #2D2D2D; border-top: 4px solid {exit_color}; margin-bottom: 25px;">
+                    <div style="background-color: #1A1A1A; padding: 18px; border-radius: 12px; border: 1px solid #2D2D2D; border-top: 4px solid {exit_color}; margin-bottom: 25px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span style="font-size: 14px; color: #AAAAAA; font-weight: bold;">🎯 ERKEN ÇIKIŞ & TEPE ANALİZİ</span>
                             <span style="background-color: {exit_color}; color: #000000; padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: 800;">
@@ -1675,56 +2215,54 @@ if IS_STREAMLIT:
                     """, unsafe_allow_html=True)
 
                     # =============================================================
-                    # 📊 KPI PANELİ
+                    # KPI METRICTS PANELİ
                     # =============================================================
-                    st.markdown("## 📊 KPI Paneli")
-
-                    def safe_float(val): return float(val) if val is not None else 0.0
-
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Fiyat", f"{safe_float(result.get('price')):.2f}")
-                    c2.metric("RSI", f"{safe_float(result.get('rsi')):.1f}")
-                    c3.metric("ADX", f"{safe_float(result.get('adx')):.1f}")
+                    # 📊 KPI PANELİ (Daha okunaklı ve görsel)
                     
-                    c4, c5, c6 = st.columns(3)
-                    c4.metric("Flow", f"%{safe_float(result.get('flow'))*100:.2f}")
-                    c5.metric("Smart Money", f"{safe_float(result.get('smart_money')):.0f}/100")
-                    c6.metric("Güven", f"%{safe_float(result.get('guven_skoru')):.0f}")
 
-                    c7, c8, c9 = st.columns(3)
-                    c7.metric("R/R", f"{safe_float(result.get('rr')):.2f}")
-                    c8.metric("Skor", f"{safe_float(result.get('score')):.3f}")
-                    c9.metric("Grade", result.get("grade", "N/A"), help="Hisse performans derecesi")
                     
-                    # =============================================================================
-                    # 2. ARZ / TALEP ANALİZİ (Boşluksuz f-string ve net TL ifadeleri yerleştirildi)
-                    # =============================================================================
+                    # =============================================================
+                    # ARZ / TALEP HACİM PANELİ
+                    # =============================================================
                     st.markdown("## 📊 Arz / Talep Analizi")
-                    c10, c11, c12 = st.columns(3)
-                    c10.metric("Alım Hacmi (TL)", f"{safe_float(result.get('buy_volume')):,.0f} ₺")
-                    c11.metric("Satım Hacmi (TL)", f"{safe_float(result.get('sell_volume')):,.0f} ₺")
-                    c12.metric("Flow Index", f"{safe_float(result.get('flow')):.3f}")
+                    v_col1, v_col2, v_col3 = st.columns(3)
+                    v_col1.metric("Alım Hacmi (TL)", f"{safe_float(result.get('buy_volume')):,.0f} ₺")
+                    v_col2.metric("Satım Hacmi (TL)", f"{safe_float(result.get('sell_volume')):,.0f} ₺")
+                    v_col3.metric("Flow Index", f"{safe_float(result.get('flow')):.3f}")
 
                     st.markdown("---")
                     st.markdown(f"""
                     🟢 **Alıcı Baskısı:** %{safe_float(result.get('buy_pressure'))*100:.1f}  
                     🔴 **Satıcı Baskısı:** %{safe_float(result.get('sell_pressure'))*100:.1f}
                     """)
+                    
+                    # Artık result sözlüğün trend_power verisini taşıyor.
+                    # Doğrudan result içinden alıyoruz:
+
+                    col_extra1, col_extra2 = st.columns(2)
+
+                    # 1. Suni Hareket
+                    col_extra1.metric("Suni Hareket Analizi", result.get("suni_hareket", "🟢 NORMAL"))
+
+                    # 2. Trend Gücü (Artık tanımlı bir anahtar olduğu için hata vermez)
+                    trend_val = result.get("trend_power", 0.0)
+                    col_extra2.metric("📈 Trend Gücü", f"{trend_val:.0f}/100")
+
+                    
+                    st.warning(f"Ana Strateji: {result.get('strategy_action', 'TUT')} | Pozisyon Yönetimi: {result.get('exit_strategy_action', 'TUT')}")
 
                     # =============================================================
-                    # 🚦 SIGNAL BOX
+                    # SIGNAL BOX
                     # =============================================================
                     st.markdown("## 🚦 Sinyal")
                     st.markdown(f"""
-                    <div style="
-                        background:{result.get('color', '#333')}; padding:18px; border-radius:12px;
-                        text-align:center; font-size:30px; font-weight:800; color:white;">
+                    <div style="background:{result.get('color', '#333')}; padding:18px; border-radius:12px; text-align:center; font-size:30px; font-weight:800; color:white;">
                         {result.get('signal', 'SİNYAL YOK')}
                     </div>
                     """, unsafe_allow_html=True)
                     
                     # =============================================================
-                    # 🤖 AI RAPORU VE PİYASA REJİMİ
+                    # AI STRATEJİ VE PİYASA REJİMİ
                     # =============================================================
                     st.markdown("### 🤖 Yapay Zeka Strateji Raporu")
                     st.info(result.get('ai_comment', 'Yorum bulunamadı.'))
@@ -1739,27 +2277,49 @@ if IS_STREAMLIT:
                     """)
                     
                     # =============================================================
-                    # 📈 GRAFİK VE ÖZET
+                    # PLOTLY TEKNİK GRAFİK
                     # =============================================================
                     st.markdown("## 📈 Teknik Grafik")
-                    fig = create_technical_chart(df_st, result)
+                    # Zaman indeksini grafik için yerel formata çekme güvencesi
+                    if not df_st.empty and not isinstance(df_st.index, pd.DatetimeIndex):
+                        df_st.index = pd.to_datetime(df_st.index)
+                    
+                    fig = create_technical_chart(df_st)
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
 
+                    # =============================================================
+                    # TEKNİK ÖZET VE VERİ KONTROL PANELİ (GÜNCELLENEN GÜVENLİ BÖLGE)
+                    # =============================================================
                     st.markdown("## 📋 Teknik Özet")
                     st.write(f"• Trend Durumu: {result.get('trend_text', 'Bilinmiyor')}")
                     st.write(f"• Stop Loss: {safe_float(result.get('stop_loss')):.2f}")
                     st.write(f"• Kar Al: {safe_float(result.get('take_profit')):.2f}")
                     st.write(f"• Hisse Karnesi: {safe_float(result.get('stock_score')):.0f}/100")
                     st.write(f"• Risk/Getiri Oranı: {safe_float(result.get('rr')):.2f}")
-                    
-                    if not df_st.empty:
+
+                    if df_st is not None and not df_st.empty:
                         st.write("DATA AGE (SON BAR):", df_st.index[-1])
                         st.write("CURRENT ROW COUNT:", len(df_st))
-                        st.write("LAST CLOSE:", df_st["Close"].iloc[-1])
+                        
+                        # 🌟 HARF KİLİDİNİ KIRAN GÜVENLİK KALKANI:
+                        # Tablonun sütun isimlerini kontrol edip hangisi varsa ona göre güvenle yazdırıyoruz
+                        last_close_val = 0.0
+                        if "close" in df_st.columns:
+                            val = df_st["close"].iloc[-1]
+                            last_close_val = float(val.values[0]) if hasattr(val, "values") else float(val)
+                        elif "Close" in df_st.columns:
+                            val = df_st["Close"].iloc[-1]
+                            last_close_val = float(val.values[0]) if hasattr(val, "values") else float(val)
+                        else:
+                            # Sütun adı tamamen kayıpsa veya farklıysa yedek plan olarak fiyattan besle
+                            last_close_val = safe_float(result.get('price', 0.0))
+                            
+                        st.write("LAST CLOSE:", f"{last_close_val:.2f} ₺")
 
                     # =============================================================
-                    # 🛠️ DEBUG PANELİ
+                    # DEBUG PANELİ
                     # =============================================================
-                    if st.checkbox("Debug"):
+                    if st.checkbox("Debug Modu"):
                         st.json(result)
+
