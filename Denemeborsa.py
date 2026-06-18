@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Jun 13 22:28:58 2026
+Created on Thu Jun 18 23:35:16 2026
 
 @author: EmirAysu
 """
+
 
 # =============================================================================
 # 1. STANDART KÜTÜPHANELER (Python'ın kendi içindekiler)
@@ -1430,12 +1431,25 @@ def institutional_signal_engine(
     }
 
 def get_grade(score):
-    if score >= 85: return "A+"
-    elif score >= 75: return "A"
-    elif score >= 65: return "B"
-    elif score >= 50: return "C"
-    elif score >= 35: return "D"
-    else: return "F"   
+    try:
+        # 🟢 KRİTİK DÜZELTME: Gelen veri string ("52.25") bile olsa sayıya çeviriyoruz
+        score = float(score)
+    except (ValueError, TypeError):
+        # Eğer veri bozuk veya None gelirse sistem çökmesin, en düşük notu ver
+        return "F"
+    # 📊 BORSA İSTANBUL GERÇEKLERİNE GÖRE YENİDEN AYARLANMIŞ FINANSAL BAREM
+    if score >= 80: 
+        return "A+"  # Olağanüstü Güçlü Bölge
+    elif score >= 70: 
+        return "A"   # Güçlü Boğa Trendi
+    elif score >= 58: 
+        return "B"   # Pozitif / Yükseliş Eğilimli
+    elif score >= 48: 
+        return "C"   # GEÇİŞ / DENGE BÖLGESİ (52.25 artık tam buraya oturacak!)
+    elif score >= 35: 
+        return "D"   # Zayıf / Ayı Baskısı Altında
+    else: 
+        return "F"   # Ağır Kusurlu / Çöküş Trendi   
 
 
 def final_decision(signal, exit_signal):
@@ -1475,223 +1489,312 @@ def _get_empty_result():
 
 
 
-def analyze(df, model, features, symbol="THYAO"):
-    # Streamlit Arayüzünde Teşhis Başlığı Açıyoruz (İncelemek istersen genişletebilirsin)
-    with st.expander(f"🔍 {symbol} Veri Akış ve Teşhis Raporu", expanded=False):
-        st.markdown("### 🛠️ Arka Plan Veri Denetimi")
-        
-        # -------------------------------------------------------------------------
-        # 1. DATA GUARD & ILK KONTROL
-        # -------------------------------------------------------------------------
-        if df is None or len(df) < 30:
-            st.error("❌ HATA: DataFrame boş veya 30 bardan az veri geliyor!")
-            return _get_empty_result()
+def _clean_and_prepare_df(df, model, features, symbol):
+    """DataFrame temizliği, sütun zırhı ve yapay zeka hazırlık süreçlerini yönetir."""
+    st.markdown("### 🛠️ Arka Plan Veri Denetimi")
+    
+    if df is None or len(df) < 30:
+        st.error("❌ HATA: DataFrame boş veya 30 bardan az veri geliyor!")
+        return None, features
 
-        st.info(f"1. Adım: Veri tabanından gelen ham satır sayısı: **{len(df)}**")
-        
-        # Ana DataFrame bozulmasın diye kopyalıyoruz
-        df = df.copy()
+    st.info(f"1. Adım: Veri tabanından gelen ham satır sayısı: **{len(df)}**")
+    df = df.copy()
 
-        # 🌟 MULTI-INDEX VE TUPLE SÜTUN ZIRHI
-        # Eğer yfinance sütunları çok katmanlı getirdiyse en üst katmanı (Open, High, Close) alıyoruz
+    # MULTI-INDEX VE TUPLE SÜTUN ZIRHI
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    
+    cleaned_cols = []
+    for col in df.columns:
+        if isinstance(col, tuple):
+            cleaned_cols.append(str(col[0]).lower().strip())
+        else:
+            cleaned_cols.append(str(col).lower().strip())
+    df.columns = cleaned_cols
+    
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
+        else:
+            st.warning(f"⚠️ Kritik sütun '{col}' isimle bulunamadı, pozisyonel eşleştirme yapılıyor.")
+            if col == 'open' and len(df.columns) > 0: df.rename(columns={df.columns[0]: 'open'}, inplace=True)
+            elif col == 'high' and len(df.columns) > 1: df.rename(columns={df.columns[1]: 'high'}, inplace=True)
+            elif col == 'low' and len(df.columns) > 2: df.rename(columns={df.columns[2]: 'low'}, inplace=True)
+            elif col == 'close' and len(df.columns) > 3: df.rename(columns={df.columns[3]: 'close'}, inplace=True)
+
+    if 'close' not in df.columns:
+        st.error("🚨 KRİTİK HATA: Sütunlar hiçbir şekilde 'close' olarak eşleştirilemedi! Mevcut Sütunlar: " + str(list(df.columns)))
+        return None, features
+            
+    st.write(f"2. Adım: Temizlik sonrası ilk ham kapanış fiyatı: `{df['close'].iloc[-1]}`")
+
+    # PREPARE DATA KONTROLÜ
+    try:
+        df, features = _prepare_data(df, features, model)
+        if df is None or df.empty:
+            st.error("❌ HATA: `_prepare_data` fonksiyonu veri setini tamamen sıfırladı/boşalttı!")
+            return None, features
+        
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+        df.columns = [str(col).lower().strip() for col in df.columns]
+        features = [f.lower() for f in features]
         
-        # Eğer sütun isimleri Tuple kalmışsa ("Close", "TUREX.IS") sadece ilk elemanı alıyoruz
-        cleaned_cols = []
-        for col in df.columns:
-            if isinstance(col, tuple):
-                cleaned_cols.append(str(col[0]).lower().strip())
-            else:
-                cleaned_cols.append(str(col).lower().strip())
-        df.columns = cleaned_cols
+        st.success(f"3. Adım: `_prepare_data` sonrası satır sayısı: **{len(df)}**")
+        st.write(f"4. Adım: Yapay zeka hazırlığı sonrası fiyat durumu: `{df['close'].iloc[-1]}`")
         
-        # Gerekli temel sütunları float tipine zorluyoruz
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
-            else:
-                # EĞER HÂLÂ BULAMADIYSA: Sırasıyla eşleştirmeyi dene (0: open, 1: high, 2: low, 3: close)
-                st.warning(f"⚠️ Kritik sütun '{col}' isimle bulunamadı, pozisyonel eşleştirme yapılıyor.")
-                if col == 'open' and len(df.columns) > 0: df.rename(columns={df.columns[0]: 'open'}, inplace=True)
-                elif col == 'high' and len(df.columns) > 1: df.rename(columns={df.columns[1]: 'high'}, inplace=True)
-                elif col == 'low' and len(df.columns) > 2: df.rename(columns={df.columns[2]: 'low'}, inplace=True)
-                elif col == 'close' and len(df.columns) > 3: df.rename(columns={df.columns[3]: 'close'}, inplace=True)
+    except Exception as e:
+        st.error(f"❌ HATA: `_prepare_data` fonksiyonu çalışırken çöktü! Hata: {e}")
 
-        # Son bir kez garanti kontrol
-        if 'close' not in df.columns:
-            st.error("🚨 KRİTİK HATA: Sütunlar hiçbir şekilde 'close' olarak eşleştirilemedi! Mevcut Sütunlar: " + str(list(df.columns)))
-            return _get_empty_result()
-                
-        st.write(f"2. Adım: Temizlik sonrası ilk ham kapanış fiyatı: `{df['close'].iloc[-1]}`")
+    df = df.ffill().bfill()
+    return df, features
 
-        # -------------------------------------------------------------------------
-        # 🚨 KRİTİK EŞİK: PREPARE DATA KONTROLÜ
-        # -------------------------------------------------------------------------
-        try:
-            df, features = _prepare_data(df, features, model)
-            if df is None or df.empty:
-                st.error("❌ HATA: `_prepare_data` fonksiyonu veri setini tamamen sıfırladı/boşalttı!")
-                return _get_empty_result()
-            
-            # Sütunları tekrar standartlaştırıyoruz (prepare_data sonrası için de geçerli)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.columns = [str(col).lower().strip() for col in df.columns]
-            features = [f.lower() for f in features]
-            
-            st.success(f"3. Adım: `_prepare_data` sonrası satır sayısı: **{len(df)}**")
-            st.write(f"4. Adım: Yapay zeka hazırlığı sonrası fiyat durumu: `{df['close'].iloc[-1]}`")
-            
-        except Exception as e:
-            st.error(f"❌ HATA: `_prepare_data` fonksiyonu çalışırken çöktü! Hata: {e}")
-
-        # Eğer son satır NaN (boşluk) ürettiyse önceki satırlarla dolduruyoruz (Sıfırlanma Önleyici)
-        df = df.ffill().bfill()
-        
-        
-        
-
-        # -------------------------------------------------------------------------
-        # 2. LIVE PRICE (Canlı Fiyat Entegrasyonu)
-        # -------------------------------------------------------------------------
+def _calculate_indicators_and_flow(df, model, features, symbol):
+    """Canlı fiyatı, teknik indikatörleri, ML tahmin olasılıklarını ve para akışını hesaplar."""
+    # LIVE PRICE (Canlı Fiyat Entegrasyonu)
+    live_price = None
+    try:
+        live_price = get_live_price(symbol)
+    except Exception:
         live_price = None
+
+    if not is_market_open():
         try:
-            live_price = get_live_price(symbol)
+            yf_symbol = f"{symbol}.IS" if not symbol.endswith(".IS") else symbol
+            df_daily = yf.download(yf_symbol, period="1d", interval="1d", auto_adjust=True, progress=False)
+            if not df_daily.empty:
+                if isinstance(df_daily.columns, pd.MultiIndex):
+                    df_daily.columns = df_daily.columns.get_level_values(0)
+                df_daily.columns = [str(c).lower().strip() for c in df_daily.columns]
+                live_price = float(df_daily["close"].iloc[-1])
         except Exception:
-            live_price = None
+            pass
 
-        if not is_market_open():
-            try:
-                yf_symbol = f"{symbol}.IS" if not symbol.endswith(".IS") else symbol
-                df_daily = yf.download(
-                    yf_symbol, period="1d", interval="1d", auto_adjust=True, progress=False,
-                )
-                if not df_daily.empty:
-                    if isinstance(df_daily.columns, pd.MultiIndex):
-                        df_daily.columns = df_daily.columns.get_level_values(0)
-                    df_daily.columns = [str(c).lower().strip() for c in df_daily.columns]
-                    live_price = float(df_daily["close"].iloc[-1])
-            except Exception:
-                pass
-
-        if live_price and live_price > 0:
-            close = float(live_price)
-            idx = df.index[-1]
-            df.loc[idx, "close"] = close
-            
-            current_high = float(df.loc[idx, "high"].iloc[0]) if hasattr(df.loc[idx, "high"], "iloc") else float(df.loc[idx, "high"])
-            current_low = float(df.loc[idx, "low"].iloc[0]) if hasattr(df.loc[idx, "low"], "iloc") else float(df.loc[idx, "low"])
-            
-            df.loc[idx, "high"] = max(current_high, close)
-            df.loc[idx, "low"] = min(current_low, close)
-        else:
-            close = float(df["close"].iloc[-1])
-
-        st.metric(label="5. Adım: Analize Giren Net Kapanış Fiyatı", value=f"{close} ₺")
-        base_last = df.iloc[-1].copy()
-
-        # 🌟 ZIRH KODUNU TAM BURAYA, BASE_LAST'IN HEMEN ALTINA YAPIŞTIR:
-        clean_last_dict = {}
-        for col in list(df.columns):
-            col_lower = str(col).lower().strip()
-            val = base_last[col]
-            try:
-                import numpy as np
-                if hasattr(val, "values"):
-                    flat_vals = np.asarray(val.values).ravel()
-                    pure_val = float(flat_vals[0]) if len(flat_vals) > 0 else float(df['close'].iloc[-1])
-                else:
-                    pure_val = float(val)
-            except:
-                pure_val = float(df['close'].iloc[-1])
-                
-            clean_last_dict[col_lower] = pure_val
-            clean_last_dict[str(col).strip()] = pure_val
+    if live_price and live_price > 0:
+        close = float(live_price)
+        idx = df.index[-1]
+        df.loc[idx, "close"] = close
         
-        # Orijinal base_last nesnesini güvenli sözlükle değiştiriyoruz
-        base_last = clean_last_dict
+        current_high = float(df.loc[idx, "high"].iloc[0]) if hasattr(df.loc[idx, "high"], "iloc") else float(df.loc[idx, "high"])
+        current_low = float(df.loc[idx, "low"].iloc[0]) if hasattr(df.loc[idx, "low"], "iloc") else float(df.loc[idx, "low"])
+        
+        df.loc[idx, "high"] = max(current_high, close)
+        df.loc[idx, "low"] = min(current_low, close)
+    else:
+        close = float(df["close"].iloc[-1])
 
-        # -------------------------------------------------------------------------
-        # 3. MODEL PREDICTION (XGBoost & LightGBM Ensemble)
-        # -------------------------------------------------------------------------
-        proba = 0.5
+    st.metric(label="5. Adım: Analize Giren Net Kapanış Fiyatı", value=f"{close} ₺")
+    base_last = df.iloc[-1].copy()
+
+    # BASE_LAST SÜTUN TEMİZLİK ZIRHI
+    clean_last_dict = {}
+    for col in list(df.columns):
+        col_lower = str(col).lower().strip()
+        val = base_last[col]
         try:
-            valid_features = [f for f in features if f in df.columns]
-            if len(valid_features) == len(features):
-                X = df[features].iloc[-1:].values
-                probs = []
-                xgb_model = model.get("xgb", None) if isinstance(model, dict) else None
-                if xgb_model is not None and hasattr(xgb_model, "predict_proba"):
-                    try: comps = xgb_model.predict_proba(X); probs.append(float(comps[0][1]))
-                    except Exception: pass
-
-                lgbm_model = model.get("lgbm", None) if isinstance(model, dict) else None
-                if lgbm_model is not None and hasattr(lgbm_model, "predict_proba"):
-                    try: comps = lgbm_model.predict_proba(X); probs.append(float(comps[0][1]))
-                    except Exception: pass
-
-                if len(probs) > 0:
-                    proba = sum(probs) / len(probs)
+            import numpy as np
+            if hasattr(val, "values"):
+                flat_vals = np.asarray(val.values).ravel()
+                pure_val = float(flat_vals[0]) if len(flat_vals) > 0 else float(df['close'].iloc[-1])
             else:
-                st.warning("⚠️ Bazı yapay zeka model özellikleri (features) DataFrame'de eksik!")
-        except Exception:
-            proba = 0.5
-
-        proba = float(np.clip(proba, 0.05, 0.95))
-
-        # -------------------------------------------------------------------------
-        # 4. INDICATORS (Güvenli Hesaplama Katmanı)
-        # -------------------------------------------------------------------------
-     
-        try:
-            # Sütunları küçük harfe zorla çağırdığımızdan emin ol
-            adx_series = ta.trend.ADXIndicator(
-                high=df["high"], low=df["low"], close=df["close"], fillna=True
-            ).adx()
-            adx = float(adx_series.iloc[-1]) if not pd.isna(adx_series.iloc[-1]) else 25.0
+                pure_val = float(val)
+        except:
+            pure_val = float(df['close'].iloc[-1])
             
-            rsi_series = ta.momentum.RSIIndicator(close=df["close"], fillna=True).rsi()
-            rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
-        except Exception as e:
-            adx = 25.0
-            rsi = 50.0
-    # -------------------------------------------------------------------------
-    # 4.5 SÜTUN UYUMSUZLUK KÖPRÜSÜ (GÜVENLİ VERSİYON)
-    # -------------------------------------------------------------------------
-    # Yinelenen sütunları temizle (duplicate columns varsa ilkini korur)
-    df = df.loc[:, ~df.columns.duplicated()]
+        clean_last_dict[col_lower] = pure_val
+        clean_last_dict[str(col).strip()] = pure_val
+    base_last = clean_last_dict
 
-    # Alt fonksiyonlar hem küçük hem büyük harf arayabilsin diye sözlükle eşliyoruz
-    # Tablodaki mevcut sütunların Capitalize (İlk harfi büyük) versiyonlarını klonluyoruz
+    # MODEL PREDICTION (XGBoost & LightGBM Ensemble)
+    proba = 0.5
+    try:
+        valid_features = [f for f in features if f in df.columns]
+        if len(valid_features) == len(features):
+            X = df[features].iloc[-1:].values
+            probs = []
+            xgb_model = model.get("xgb", None) if isinstance(model, dict) else None
+            if xgb_model is not None and hasattr(xgb_model, "predict_proba"):
+                try: comps = xgb_model.predict_proba(X); probs.append(float(comps[0][1]))
+                except Exception: pass
+
+            lgbm_model = model.get("lgbm", None) if isinstance(model, dict) else None
+            if lgbm_model is not None and hasattr(lgbm_model, "predict_proba"):
+                try: comps = lgbm_model.predict_proba(X); probs.append(float(comps[0][1]))
+                except Exception: pass
+
+            if len(probs) > 0:
+                proba = sum(probs) / len(probs)
+        else:
+            st.warning("⚠️ Bazı yapay zeka model özellikleri (features) DataFrame'de eksik!")
+    except Exception:
+        proba = 0.5
+
+    proba = float(np.clip(proba, 0.05, 0.95))
+
+    # INDICATORS
+    try:
+        adx_series = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], fillna=True).adx()
+        adx = float(adx_series.iloc[-1]) if not pd.isna(adx_series.iloc[-1]) else 25.0
+        
+        rsi_series = ta.momentum.RSIIndicator(close=df["close"], fillna=True).rsi()
+        rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
+    except Exception:
+        adx = 25.0
+        rsi = 50.0
+
+    return df, close, base_last, proba, adx, rsi 
+
+
+def execute_central_decision_engine(result, score, suni_durum, str_signal, tepe_skoru):
+    """
+    KUMANDA MERKEZİ V5.1: MOPAS/TUREX karşılaştırmasında tespit edilen statik metin 
+    hatasını düzeltir. AI yorum alanını tamamen dinamik ve değişken odaklı hale getirir.
+    """
+    # 1. PARAMETRE KONTROLLERİ
+    try:
+        score_val = float(score)
+    except (ValueError, TypeError):
+        score_val = 50.0
+
+    try:
+        tepe_val = float(tepe_skoru)
+    except:
+        tepe_val = 50.0
+
+    # Flow verisini güvenli oku
+    try:
+        flow_idx = float(result.get("Flow Index", result.get("flow", result.get("flow_index", 0.0))))
+    except:
+        flow_idx = 0.0
+
+    # 2. HASSAS GRADING SİSTEMİ
+    if score_val >= 80:     current_grade = "A+"
+    elif score_val >= 70:   current_grade = "A"
+    elif score_val >= 50:   current_grade = "B"
+    elif score_val >= 43:   current_grade = "C"
+    elif score_val >= 35:   current_grade = "C-"
+    elif score_val >= 20:   current_grade = "D"
+    else:                   current_grade = "F"
+
+    result["score"] = score_val
+    result["grade"] = current_grade
+    result["stock_score"] = score_val
+    result["hisse_karnesi"] = score_val
+
+    suni_durum = str(suni_durum or "").upper()
+    str_signal = str(str_signal or "").upper()
+
+    # 3. DİNAMİK FLOW TANIMLAMASI (Metin hatasını çözen anahtar yer)
+    if abs(flow_idx) <= 0.15:
+        flow_text = "istatistiksel olarak dengeli bantta yer almakta"
+    elif flow_idx < -0.15:
+        flow_text = "hafif negatif eğilimli para çıkışı barındırmakta"
+    else:
+        flow_text = "hafif pozitif eğilimli para girişi barındırmakta"
+
+    is_anomaly = "SUNİ" in suni_durum or "TUZAK" in suni_durum
+
+    # 4. TEK BEYİN REJİMİ
+    # DURUM 1: DÜŞÜK ZİRVE RİSKİ BÖLGESİ (Tepe Skoru < 45)
+    if tepe_val < 45:
+        if is_anomaly:
+            result["suni_hareket"] = "🟡 YATAY KONSOLİDASYON"
+            result["kalicilik_durumu"] = "🟡 YATAY KONSOLİDASYON"
+        
+        if "SAT" in str_signal or score_val < 43:
+            result["signal"] = "İZLE / NÖTR"
+            result["strategy_action"] = "SÜREÇ: YATAY DENGELENME"
+            result["kar_koruma_durumu"] = "🟢 NORMAL BÖLGE"
+            result["exit_strategy_action"] = "POZİSYONU KORU"
+            result["trend_text"] = f"⚖️ Zirve Baskısı Düşük (Mevcut Seviye: %{tepe_val:.0f})"
+            
+            # Tamamen dinamikleştirilmiş hata vermeyen yeni metin yapısı:
+            result["ai_comment"] = (
+                f"ℹ️ SENTEZ RAPORU: Fiyat yapısı, zirve riskinin düşük olduğu (%{tepe_val:.0f}) "
+                f"yatay bir konsolidasyon ve dengelenme sürecini işaret etmektedir. Para akışı (Flow: {flow_idx:.3f}) "
+                f"{flow_text} olup, net bir kırılım iştahı taşımamaktadır. "
+                f"Zayıf/Dengeli karne notu ({current_grade}) piyasadaki kararsız yapıyı onaylamakta olup, "
+                f"mevcut pozisyonlar açısından nötr/bekleme stratejisi uygundur."
+            )
+            result["exit_strategy_comment"] = (
+                "Yatay konsolidasyon bandının ana destek seviyeleri geçerliliğini korumaktadır. "
+                "Hacim veri setinde yönlü bir kırılım oluşana kadar mevcut risk limitleri dahilinde pozisyon takibi önerilir."
+            )
+        else:
+            result["signal"] = "AL / KADEMELİ"
+            result["strategy_action"] = "YATAY BANTTAN ÇIKIŞ ÇABASI"
+            result["kar_koruma_durumu"] = "🟢 GÜVENLİ BÖLGE"
+            result["exit_strategy_action"] = "DESTEK ÜZERİ İZLEME"
+            result["trend_text"] = "🟢 Pozitif Akümülasyon"
+
+    # DURUM 2: YÜKSEK ZİRVE RİSKİ BÖLGESİ (Tepe Skoru >= 45)
+    else:
+        if is_anomaly or "SAT" in str_signal or score_val < 45:
+            if is_anomaly:
+                result["suni_hareket"] = "⚠️ SUNİ ZİRVE YÜKSELİŞİ"
+                result["kalicilik_durumu"] = "⚠️ SUNİ ZİRVE YÜKSELİŞİ"
+            
+            result["signal"] = "UZAK DUR / SAT"
+            result["strategy_action"] = "ZİRVE BÖLGESİ BOĞA TUZAĞI"
+            result["kar_koruma_durumu"] = "🔴 DEFANSİF MOD (ALARM)"
+            result["exit_strategy_action"] = "KADEMELİ AZALT / NAKİTE GEÇ"
+            result["trend_text"] = f"🚨 Yüksek Zirve Riski (Mevcut Seviye: %{tepe_val:.0f})"
+            
+            result["ai_comment"] = (
+                f"🚨 DİKKAT: Hisse zirve direnç hattına yakın, yüksek risk bölgesindedir (%{tepe_val:.0f}). "
+                f"Mevcut fiyat hareketinin hacim grubuyla desteklenmemesi ve karne notunun ({current_grade}) "
+                f"bu seviyede zayıf kalması, zirve bölgesinde bir boğa tuzağı olasılığını artırmaktadır."
+            )
+            result["exit_strategy_comment"] = (
+                "Direnç seviyelerindeki hacimsiz seyir sebebiyle yeni maliyetlenme yapılmamalı, "
+                "olası kar realizasyonlarına karşı iz süren stoplar koruma amaçlı yukarı çekilmelidir."
+            )
+        else:
+            result["suni_hareket"] = "🟢 HACİMLİ TREND"
+            result["kalicilik_durumu"] = "🟢 HACİMLİ TREND"
+            result["signal"] = "AL / TRENDİ SÜR"
+            result["strategy_action"] = "TREND DEVAM FORMASYONU"
+            result["kar_koruma_durumu"] = "🟢 POZİTİF İZLEME"
+            result["exit_strategy_action"] = "İZ SÜREN STOPLA TAKİP"
+            result["trend_text"] = "🚀 Güçlü Trend Devamı"
+
+    return result
+
+def analyze(df, model, features, symbol="THYAO"):
+    # -------------------------------------------------------------------------
+    # ADIM 1: VERİ TEMİZLİK VE KONTROL
+    # -------------------------------------------------------------------------
+    with st.expander(f"🔍 {symbol} Veri Akış ve Teşhis Raporu", expanded=False):
+        df, features = _clean_and_prepare_df(df, model, features, symbol)
+        if df is None:
+            return _get_empty_result()
+
+        # -------------------------------------------------------------------------
+        # ADIM 2: CANLI FİYAT VE TEKNİK İNDİKATÖRLERİN HESAPLANMASI
+        # -------------------------------------------------------------------------
+        df, close, base_last, proba, adx, rsi = _calculate_indicators_and_flow(df, model, features, symbol)
+
+    # -------------------------------------------------------------------------
+    # ADIM 3: SÜTUN UYUMSUZLUK KÖPRÜSÜ (BÜYÜK/KÜÇÜK HARF GÜVENLİĞİ)
+    # -------------------------------------------------------------------------
+    df = df.loc[:, ~df.columns.duplicated()]
     existing_cols = list(df.columns)
     for col in existing_cols:
         cap_col = str(col).capitalize().strip()
         low_col = str(col).lower().strip()
-        
-        # Eğer tabloda küçük harflisi var ama büyük harflisi yoksa, güvenle ekle
-        if cap_col not in df.columns:
-            df[cap_col] = df[col]
-        # Eğer büyük harflisi var ama küçük harflisi yoksa, güvenle ekle
-        if low_col not in df.columns:
-            df[low_col] = df[col]
+        if cap_col not in df.columns: df[cap_col] = df[col]
+        if low_col not in df.columns: df[low_col] = df[col]
 
     # -------------------------------------------------------------------------
-    # 5. FLOW & SMART MONEY
+    # ADIM 4: FLOW, SMART MONEY VE SİNYAL MOTORLARININ TETİKLENMESI
     # -------------------------------------------------------------------------
     flow = get_hybrid_flow(symbol, df)
     flow_index = float(flow.get("flow_index", 0.0))
     smart_money = float(calculate_hybrid_smart_money(symbol, close, flow.get("flow_signal", flow_index), last=base_last))
 
-    # -------------------------------------------------------------------------
-    # 6. SMART SCORE
-    # -------------------------------------------------------------------------
     smart_score = (proba * 100 * 0.4 + (flow_index + 1) * 20 + (50 - abs(rsi - 50)) * 0.4)
     smart_score = float(np.clip(smart_score, 0, 100))
 
-    # -------------------------------------------------------------------------
-    # 7. ENGINE & SIGNALS
-    # -------------------------------------------------------------------------
     engine = institutional_signal_engine(
         df=df, adx=adx, rsi=rsi,
         flow_signal=flow.get("flow_signal", 0),
@@ -1700,18 +1803,13 @@ def analyze(df, model, features, symbol="THYAO"):
         close=close, flow_index=flow_index, smart_money=smart_money
     )
 
-    score = engine.get("skor", 50.0)
+    score_raw = engine.get("skor", 50.0)
     signal = engine.get("sinyal", "BEKLE").replace("NEUTRAL", "BEKLE").replace("⚪ BEKLE", "BEKLE")
     color = "#90A4AE"
-    
-    
 
-    # -------------------------------------------------------------------------
-    # 8. FINAL MAPPING & OUTPUT
-    # -------------------------------------------------------------------------
-    stock_score = float(np.clip(score * 0.40 + smart_money * 0.30, 0, 100))
-    final_score = float(np.clip(score * 0.60 + smart_money * 0.25, 0, 100))
-    grade = get_grade(stock_score)
+    # FINAL METRİKLER VE STRATEJİ HESAPLAMALARI
+    stock_score = float(np.clip(score_raw * 0.40 + smart_money * 0.30, 0, 100))
+    final_score = float(np.clip(score_raw * 0.60 + smart_money * 0.25, 0, 100))
 
     destek, direnc, rr, risk, reward, piyasa_notu = _calculate_risk_metrics(
         df, close, bool(df["close"].tail(20).nunique() <= 1)
@@ -1729,15 +1827,14 @@ def analyze(df, model, features, symbol="THYAO"):
         gunluk_getiri=gunluk_getiri, direnc=float(direnc), destek=float(destek)
     )
 
-    # [Buradaki mükerrer veya ara result atamasını temizleyip doğrudan ana sözlüğe geçiyoruz]
-
-    # MACD hesaplaması (Yoksa ekle ki grafik hata vermesin)
     if 'macd' not in df.columns:
         df['macd'] = 0.0
         df['macd_signal'] = 0.0
         df['macd_hist'] = 0.0
 
-    # Ana Sonuç Sözlüğü Oluşturuluyor
+    # -------------------------------------------------------------------------
+    # ADIM 5: ANA SONUÇ SÖZLÜĞÜNÜN İNŞASI
+    # -------------------------------------------------------------------------
     result = {
         "price": close, "rsi": rsi, "adx": adx, "flow_index": flow_index, "flow": flow_index,
         "flow_raw": flow.get("flow_raw", 0.0), "flow_signal": flow.get("flow_signal", 0.0),
@@ -1746,8 +1843,8 @@ def analyze(df, model, features, symbol="THYAO"):
         "smart_money": smart_money, "smart_score": smart_score, "smart_signal": signal,
         "smart_confidence": engine.get("güven", 50), "market_regime": engine.get("rejim", "Normal"),
         "regime": engine.get("rejim", "Normal"), "trend_text": engine.get("trend_text", "Dengeli"),
-        "divergence": engine.get("uyumsuzluk", "YOK"), "score": score, "final_score": final_score,
-        "stock_score": stock_score, "hisse_karnesi": stock_score, "grade": grade, "color": color, "signal": signal,
+        "divergence": engine.get("uyumsuzluk", "YOK"), "score": stock_score, "final_score": final_score,
+        "stock_score": stock_score, "hisse_karnesi": stock_score, "grade": "C", "color": color, "signal": signal,
         "destek": destek, "direnc": direnc, "rr": rr, "piyasa_notu": piyasa_notu if piyasa_notu else "Normal Rejim",
         "trend_power": engine.get("trend_gucu", 0),
         "stop_loss": exit_data.get("stop_loss", 0.0), "take_profit": exit_data.get("take_profit", 0.0),
@@ -1756,39 +1853,34 @@ def analyze(df, model, features, symbol="THYAO"):
         "strategy_action": "AL" if "AL" in signal else "SAT" if "SAT" in signal else "BEKLE",
         "exit_strategy_action": exit_data.get("exit_strategy_action", "BEKLE"),
         "exit_strategy_comment": exit_data.get("exit_strategy_comment", ""), "exit_strategy": exit_data,
-        "guven_skoru": engine.get("güven", 50), "ai_comment": "Analiz tamamlandı. Yapay zeka skorları üretildi.",
+        "guven_skoru": engine.get("güven", 50), "ai_comment": "Analiz tamamlandı.",
         "kar_koruma_skoru": exit_data.get("kar_koruma_skoru", 0), "kar_koruma_durumu": exit_data.get("kar_koruma_durumu", "N/A"),
         "tepe_skoru": exit_data.get("tepe_skoru", 0), "tepe_bolgesi_durumu": exit_data.get("tepe_bolgesi_durumu", "N/A"),
         "zirve_yorgunlugu": exit_data.get("zirve_yorgunlugu", "N/A"), "gun_ici_alarm": exit_data.get("gun_ici_alarm", "N/A")
     }
 
-    # =============================================================
-    # 🧠 🚀 KURŞUN GEÇİRMEZ KARAR FİLTRESİ & STRATEJİ KÖPRÜSÜ
-    # =============================================================
-    # .get() kullanarak None veya KeyError risklerini tamamen sıfırlıyoruz
-    suni_durum = str(result.get("suni_hareket", "")).upper()
-    str_signal = str(result.get("signal", "")).upper()
-    current_grade = str(result.get("grade", ""))
+    # -------------------------------------------------------------------------
+    # ADIM 6: MERKEZİ ANANAYASA FİLTRESİNİN ÇALIŞTIRILMASI
+    # -------------------------------------------------------------------------
+    result = execute_central_decision_engine(
+        result=result,
+        score=stock_score,
+        suni_durum=result.get("suni_hareket", ""),
+        str_signal=result.get("signal", ""),
+        tepe_skoru=result.get("tepe_skoru", 25)
+    )
 
-    if "SUNİ YÜKSELİŞ" in suni_durum:
-        result["exit_strategy_action"] = "KADEMELİ AZALT / DİKKATLİ OL"
-        result["strategy_action"] = "BEKLE / İZLE"
-        result["signal"] = "BEKLE / İZLE"
-        result["trend_text"] = "⚠️ Suni Baskı Altında"
-        result["ai_comment"] = "⚠️ DİKKAT: Yapay zeka suni bir yükseliş (tuzak) tespit etti. Strateji koruma moduna alındı."
-
-    elif "SAT" in str_signal:
-        result["exit_strategy_action"] = "STOP / NAKİTE GEÇ"
-        result["strategy_action"] = "SAT"
-        result["exit_strategy_comment"] = "Trend gücü zayıf ve karne yetersiz. Pozisyon koruma yerine risk azaltma önerilir."
-        result["ai_comment"] = "🔴 Yapay zeka zayıf trend yapısı ve düşük karne skoru tespit etti. Riskleri azaltmak adına SAT/NAKİT stratejisi önerilir."
-        
-        if current_grade == "F":
-            result["kar_koruma_durumu"] = "🔴 Anapara Koruma (Stop Limit)"
-        else:
-            result["kar_koruma_durumu"] = "🔴 Pozisyon Kapat / Satış"
+    # -------------------------------------------------------------------------
+    # ADIM 7: R/R EKRAN FORMATLAMA VE ÇIKIŞ
+    # -------------------------------------------------------------------------
+    final_rr_val = result.get('rr_ratio', result.get('R/R', result.get('rr', 2.67)))
+    try:
+        st.metric(label="📊 Getiri / Risk Oranı (R/R)", value=f"{float(final_rr_val):.2f}")
+    except (ValueError, TypeError):
+        st.metric(label="📊 Getiri / Risk Oranı (R/R)", value=f"{final_rr_val}")
 
     return result
+
 
 
 def create_technical_chart(df):
@@ -2192,19 +2284,26 @@ if IS_STREAMLIT:
                     st.markdown(f"""
                     <div style="background-color: #1E1E1E; padding: 10px; border-radius: 8px; border-left: 5px solid #2196f3; margin-bottom: 20px;">
                         ⏱️ <b>Son Güncellenme Zamanı:</b> <span style="color: #2196f3; font-weight: bold;">{su_an}</span> 
-                        <span style="font-size: 12px; color: #888888; margin-left: 10px;">(Kutu temizlendi, arka plan takibi aktif)</span>
+                        <span style="font-size: 12px; color: #888888; margin-left: 10px;">(Otomatik Takip Aktif)</span>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Kalıcılık ve Tuzak Dedektörü
+                    # 🌟 PERFORMANCE GUARD: Veri setini mobil/grafik performansı için kırpıyoruz
+                    # iPhone ekranında zaten 60'tan fazla bar yan yana sığmaz, RAM'i korur.
+                    if df_st is not None and not df_st.empty:
+                        df_chart_data = df_st.tail(60) if len(df_st) > 60 else df_st
+                    else:
+                        df_chart_data = df_st
+                    
+                    # Kalıcılık ve Tuzak Dedektörü (HTML hafifletildi)
                     suni_kod = result.get("suni_kod", 0)
                     status_color = "#4CAF50" if suni_kod == 2 else ("#FF9800" if suni_kod in [1, -1] else "#90A4AE")
-                    status_bg = "rgba(76, 175, 80, 0.1)" if suni_kod == 2 else ("rgba(255, 152, 0, 0.1)" if suni_kod in [1, -1] else "rgba(144, 164, 174, 0.1)")
+                    status_bg = "rgba(76, 175, 80, 0.05)" if suni_kod == 2 else ("rgba(255, 152, 0, 0.05)" if suni_kod in [1, -1] else "rgba(144, 164, 174, 0.05)")
 
                     st.markdown(f"""
-                    <div style="background-color: {status_bg}; padding: 15px; border-radius: 12px; border: 1px solid {status_color}; border-left: 6px solid {status_color}; margin-bottom: 25px;">
-                        <span style="font-size: 14px; color: #888888; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Hacim ve Trend Doğrulama</span>
-                        <div style="font-size: 20px; font-weight: 700; color: white; margin-top: 5px;">
+                    <div style="background-color: {status_bg}; padding: 12px; border-radius: 8px; border: 1px solid {status_color}; border-left: 5px solid {status_color}; margin-bottom: 15px;">
+                        <span style="font-size: 12px; color: #888888; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Hacim ve Trend Doğrulama</span>
+                        <div style="font-size: 18px; font-weight: 700; color: white; margin-top: 3px;">
                             {result.get('kalicilik_durumu', 'Veri Yok')}
                         </div>
                     </div>
@@ -2213,65 +2312,57 @@ if IS_STREAMLIT:
                     # Erken Çıkış & Tepe Analizi
                     tepe_skoru = result.get("tepe_skoru", 0)
                     exit_color = "#4CAF50" if tepe_skoru <= 25 else ("#FFEB3B" if tepe_skoru <= 50 else ("#FF9800" if tepe_skoru <= 75 else "#F44336"))
-                        
-                    tavsiye_aksiyon = result.get('exit_strategy_action', result.get('exit_action', 'TUT'))
+                    tavsiye_aksiyon = result.get('exit_strategy_action', result.get('exit_action', result.get('strategy_action', 'TUT')))
 
                     st.markdown(f"""
-                    <div style="background-color: #1A1A1A; padding: 18px; border-radius: 12px; border: 1px solid #2D2D2D; border-top: 4px solid {exit_color}; margin-bottom: 25px;">
+                    <div style="background-color: #141414; padding: 14px; border-radius: 8px; border: 1px solid #222222; border-top: 4px solid {exit_color}; margin-bottom: 15px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 14px; color: #AAAAAA; font-weight: bold;">🎯 ERKEN ÇIKIŞ & TEPE ANALİZİ</span>
-                            <span style="background-color: {exit_color}; color: #000000; padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: 800;">
+                            <span style="font-size: 12px; color: #AAAAAA; font-weight: bold;">🎯 ERKEN ÇIKIŞ & TEPE ANALİZİ</span>
+                            <span style="background-color: {exit_color}; color: #000000; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 800;">
                                 TEPE SKORU: %{tepe_skoru}
                             </span>
                         </div>
-                        <div style="margin-top: 12px;">
-                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Tepe Bölgesi Durumu:</b> {result.get('tepe_bolgesi_durumu', 'Normal')}</p>
-                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Kâr Koruma Safhası:</b> {result.get('kar_koruma_durumu', 'Tut')}</p>
-                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Zirve Yorgunluğu:</b> {result.get('zirve_yorgunlugu', 'Normal')}</p>
-                            <p style="margin: 3px 0; font-size: 14px; color: white;"><b>Gün İçi Ekstra Alarm:</b> {result.get('gun_ici_alarm', 'Normal')}</p>
+                        <div style="margin-top: 8px; font-size: 13px; color: #DDD;">
+                            <p style="margin: 2px 0;"><b>Tepe Bölgesi Durumu:</b> {result.get('tepe_bolgesi_durumu', 'Normal')}</p>
+                            <p style="margin: 2px 0;"><b>Kâr Koruma Safhası:</b> {result.get('kar_koruma_durumu', 'Tut')}</p>
+                            <p style="margin: 2px 0;"><b>Zirve Yorgunluğu:</b> {result.get('zirve_yorgunlugu', 'Normal')}</p>
+                            <p style="margin: 2px 0;"><b>Gün İçi Ekstra Alarm:</b> {result.get('gun_ici_alarm', 'Normal')}</p>
                         </div>
-                        <div style="margin-top: 12px; padding-top: 8px; border-top: 1px dashed #333; font-size: 15px; font-weight: bold; color: {exit_color};">
+                        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #333; font-size: 14px; font-weight: bold; color: {exit_color};">
                             👉 Çıkış Aksiyon Tavsiyesi: {tavsiye_aksiyon}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-                   
-                   
-                     # =============================================================
-                     # 📊 KPI PANELİ
-                     # =============================================================
+                    # =============================================================
+                    # 📊 KPI PANELİ
+                    # =============================================================
                     st.markdown("## 📊 KPI Paneli")
 
-                    # 1. Satır: Fiyat ve Teknik Göstergeler
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("Fiyat", f"{safe_float(result.get('price')):.2f}")
-                    c2.metric("RSI", f"{safe_float(result.get('rsi')):.1f}")
-                    c3.metric("ADX", f"{safe_float(result.get('adx')):.1f}")
+                    c1.metric("💵 Fiyat", f"{safe_float(result.get('price')):.2f}")
+                    c2.metric("📈 RSI", f"{safe_float(result.get('rsi')):.1f}")
+                    c3.metric("📉 ADX", f"{safe_float(result.get('adx')):.1f}")
 
-                    # 2. Satır: Akış ve Güven Durumu
                     c4, c5, c6 = st.columns(3)
-                    # Flow değerini güvenli şekilde alıp yüzdelik formata çeviriyoruz
                     flow_percentage = safe_float(result.get('flow')) * 100
-                    c4.metric("Flow", f"%{flow_percentage:.2f}")
-                    c5.metric("Smart Money", f"{safe_float(result.get('smart_money')):.0f}/100")
-                    c6.metric("Güven", f"%{safe_float(result.get('guven_skoru')):.0f}")
+                    c4.metric("🌊 Flow", f"%{flow_percentage:.2f}")
+                    c5.metric("💼 Smart", f"{safe_float(result.get('smart_money')):.0f}/100")
+                    c6.metric("🛡️ Güven", f"%{safe_float(result.get('guven_skoru')):.0f}")
 
-                    # 3. Satır: Strateji Skorları
                     c7, c8, c9 = st.columns(3)
-                    c7.metric("R/R", f"{safe_float(result.get('rr')):.2f}")
-                    c8.metric("Skor", f"{safe_float(result.get('score')):.3f}")
-                    c9.metric("Grade", safe_str(result.get("grade")), help="Hisse performans derecesi")
-                   
+                    c7.metric("⚖️ R/R", f"{safe_float(result.get('rr')):.2f}")
+                    c8.metric("🎯 Skor", f"{safe_float(result.get('score')):.2f}")
+                    c9.metric("🏷️ Grade", safe_str(result.get("grade")))
 
-                    
                     # =============================================================
                     # ARZ / TALEP HACİM PANELİ
                     # =============================================================
                     st.markdown("## 📊 Arz / Talep Analizi")
                     v_col1, v_col2, v_col3 = st.columns(3)
-                    v_col1.metric("Alım Hacmi (TL)", f"{safe_float(result.get('buy_volume')):,.0f} ₺")
-                    v_col2.metric("Satım Hacmi (TL)", f"{safe_float(result.get('sell_volume')):,.0f} ₺")
+                    # Mobilde taşmayı ve UI sıkışmasını önlemek için Milyon ₺ formatına çektik
+                    v_col1.metric("Alım Hacmi", f"{safe_float(result.get('buy_volume'))/1e6:.1f}M ₺")
+                    v_col2.metric("Satım Hacmi", f"{safe_float(result.get('sell_volume'))/1e6:.1f}M ₺")
                     v_col3.metric("Flow Index", f"{safe_float(result.get('flow')):.3f}")
 
                     st.markdown("---")
@@ -2280,19 +2371,11 @@ if IS_STREAMLIT:
                     🔴 **Satıcı Baskısı:** %{safe_float(result.get('sell_pressure'))*100:.1f}
                     """)
                     
-                    # Artık result sözlüğün trend_power verisini taşıyor.
-                    # Doğrudan result içinden alıyoruz:
-
                     col_extra1, col_extra2 = st.columns(2)
-
-                    # 1. Suni Hareket
                     col_extra1.metric("Suni Hareket Analizi", result.get("suni_hareket", "🟢 NORMAL"))
-
-                    # 2. Trend Gücü (Artık tanımlı bir anahtar olduğu için hata vermez)
                     trend_val = result.get("trend_power", 0.0)
                     col_extra2.metric("📈 Trend Gücü", f"{trend_val:.0f}/100")
 
-                    
                     st.warning(f"Ana Strateji: {result.get('strategy_action', 'TUT')} | Pozisyon Yönetimi: {result.get('exit_strategy_action', 'TUT')}")
 
                     # =============================================================
@@ -2300,7 +2383,7 @@ if IS_STREAMLIT:
                     # =============================================================
                     st.markdown("## 🚦 Sinyal")
                     st.markdown(f"""
-                    <div style="background:{result.get('color', '#333')}; padding:18px; border-radius:12px; text-align:center; font-size:30px; font-weight:800; color:white;">
+                    <div style="background:{result.get('color', '#333')}; padding:14px; border-radius:8px; text-align:center; font-size:24px; font-weight:800; color:white;">
                         {result.get('signal', 'SİNYAL YOK')}
                     </div>
                     """, unsafe_allow_html=True)
@@ -2321,19 +2404,24 @@ if IS_STREAMLIT:
                     """)
                     
                     # =============================================================
-                    # PLOTLY TEKNİK GRAFİK
+                    # PLOTLY TEKNİK GRAFİK (DARBOĞAZ ÇÖZÜM NOKTASI)
                     # =============================================================
                     st.markdown("## 📈 Teknik Grafik")
-                    # Zaman indeksini grafik için yerel formata çekme güvencesi
-                    if not df_st.empty and not isinstance(df_st.index, pd.DatetimeIndex):
-                        df_st.index = pd.to_datetime(df_st.index)
-                    
-                    fig = create_technical_chart(df_st)
-                    if fig:
-                        st.plotly_chart(fig, use_container_width=True)
+                    if df_chart_data is not None and not df_chart_data.empty:
+                        # Grafik çizimi için kırpılmış veriyi (df_chart_data) gönderiyoruz
+                        fig = create_technical_chart(df_chart_data)
+                        if fig:
+                            # iPhone Safari çökmesini önleyen özel Plotly konfigürasyonu
+                            st.plotly_chart(fig, use_container_width=True, config={
+                                'displayModeBar': False,  # Ağır buton menüsünü gizler
+                                'responsive': True,
+                                'scrollZoom': False       # Yanlışlıkla zoom ile kasmayı önler
+                            })
+                    else:
+                        st.info("Grafik çizimi için veri yetersiz.")
 
                     # =============================================================
-                    # TEKNİK ÖZET VE VERİ KONTROL PANELİ (GÜNCELLENEN GÜVENLİ BÖLGE)
+                    # TEKNİK ÖZET VE VERİ KONTROL PANELİ
                     # =============================================================
                     st.markdown("## 📋 Teknik Özet")
                     st.write(f"• Trend Durumu: {result.get('trend_text', 'Bilinmiyor')}")
@@ -2346,24 +2434,18 @@ if IS_STREAMLIT:
                         st.write("DATA AGE (SON BAR):", df_st.index[-1])
                         st.write("CURRENT ROW COUNT:", len(df_st))
                         
-                        # 🌟 HARF KİLİDİNİ KIRAN GÜVENLİK KALKANI:
-                        # Tablonun sütun isimlerini kontrol edip hangisi varsa ona göre güvenle yazdırıyoruz
-                        last_close_val = 0.0
-                        if "close" in df_st.columns:
-                            val = df_st["close"].iloc[-1]
-                            last_close_val = float(val.values[0]) if hasattr(val, "values") else float(val)
-                        elif "Close" in df_st.columns:
-                            val = df_st["Close"].iloc[-1]
-                            last_close_val = float(val.values[0]) if hasattr(val, "values") else float(val)
-                        else:
-                            # Sütun adı tamamen kayıpsa veya farklıysa yedek plan olarak fiyattan besle
+                        last_close_val = None
+                        target_col = next((col for col in ["close", "Close"] if col in df_st.columns), None)
+                        if target_col and not df_st.empty:
+                            try:
+                                val = df_st[target_col].iloc[-1]
+                                last_close_val = float(val.values[0]) if hasattr(val, "values") else float(val)
+                            except (ValueError, TypeError):
+                                last_close_val = None
+                                
+                        if last_close_val is None or pd.isna(last_close_val):
                             last_close_val = safe_float(result.get('price', 0.0))
-                            
                         st.write("LAST CLOSE:", f"{last_close_val:.2f} ₺")
 
-                    # =============================================================
-                    # DEBUG PANELİ
-                    # =============================================================
                     if st.checkbox("Debug Modu"):
                         st.json(result)
-
