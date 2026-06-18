@@ -183,6 +183,7 @@ else:
 def load_model() -> dict | None:
     # 1. Kontrol: Dosya diskte var mı?
     if not os.path.isfile(MODEL_PATH):
+        # Önce hatayı ekrana basıyoruz, sonra None dönüyoruz!
         st.sidebar.error(f"📁 Model dosyası bulunamadı! Aranan yol: {MODEL_PATH}")
         return None
         
@@ -210,7 +211,6 @@ def load_model() -> dict | None:
         # 5. Kontrol: Kritik bir Python/Kütüphane hatası fırladı mı?
         st.sidebar.error(f"💥 Kritik Yükleme Hatası: {str(e)}")
         return None
-
 # ==============================================================================
 # 🛠️ GÜVENLİK VE GECİCİ KORUMA MOTORLARI (EKSİK FONKSİYONLAR İÇİN)
 # ==============================================================================
