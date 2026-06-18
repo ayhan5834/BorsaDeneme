@@ -45,6 +45,15 @@ from streamlit_autorefresh import st_autorefresh
 # =============================================================================
 # 3. ORTAM TESPİTİ VE GÜVENLİK MUHAFIZLARI (CRITICAL FIX)
 # =============================================================================
+
+
+# Uygulamanın çalıştığı ana klasörü (proje kök dizinini) dinamik olarak bulur
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Model yolunu bu ana klasöre göre göreli (relative) olarak inşa eder
+MODEL_PATH = os.path.join(BASE_DIR, "models", "ensemble.pkl")
+
+
 IS_STREAMLIT = False
 
 try:
