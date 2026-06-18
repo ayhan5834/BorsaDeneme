@@ -86,8 +86,9 @@ except ImportError:
         def __init__(self): 
             pass
 
+
 # =============================================================================
-# 5. AYARLAR VE SUNUCU UYUMLU DİNAMİK DOSYA YOLLARI
+# 5. AYARLAR VE SUNUCU UYUMLU DİNAMİK DOSYA YOLLARI (DÜZELTİLMİŞ)
 # =============================================================================
 FEATURES_OLD = ["Open", "High", "Low", "Close", "Volume"]
 
@@ -107,12 +108,31 @@ OUTPUT_SCHEMA = {
     "score": float
 }
 
-BASE_DIR = Path(__file__).resolve().parents[0]
+# Proje ana dizinini string olarak alıyoruz
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_model_path():
+    # 1. Öncelik: Yerel bilgisayardaki sabit D yolu
     if os.path.exists(r"d:\borsa\models\ensemble.pkl"):
-        return Path(r"d:\borsa\models\ensemble.pkl")
-    return BASE_DIR / "models" / "ensemble.pkl"
+        return r"d:\borsa\models\ensemble.pkl"
+    
+    # 2. Öncelik: Sunucu veya yerel için dinamik küçük harfli yol
+    alternative_1 = os.path.join(CURRENT_DIR, "models", "ensemble.pkl")
+    if os.path.exists(alternative_1):
+        return alternative_1
+        
+    # 3. Öncelik: Sunucu Linux harf duyarlılığı kontrolü (Büyük 'Models' klasörü ihtimali için)
+    alternative_2 = os.path.join(CURRENT_DIR, "Models", "ensemble.pkl")
+    if os.path.exists(alternative_2):
+        return alternative_2
+        
+    # 4. Öncelik: Büyük 'Ensemble.pkl' dosya adı ihtimali için
+    alternative_3 = os.path.join(CURRENT_DIR, "models", "Ensemble.pkl")
+    if os.path.exists(alternative_3):
+        return alternative_3
+
+    # Hiçbiri bulunamazsa varsayılan dinamik yolu dön (load_model arayüze hata basacaktır)
+    return alternative_1
 
 MODEL_PATH = get_model_path()
 
