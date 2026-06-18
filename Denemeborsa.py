@@ -152,17 +152,35 @@ else:
 
 @st.cache_resource(show_spinner=False)
 def load_model() -> dict | None:
+    # 1. Kontrol: Dosya diskte var mı?
     if not os.path.isfile(MODEL_PATH):
+        st.sidebar.error(f"📁 Model dosyası bulunamadı! Aranan yol: {MODEL_PATH}")
         return None
+        
     try:
         model = joblib.load(MODEL_PATH)
-        if model is None or not isinstance(model, dict) or "xgb" not in model:
+        
+        # 2. Kontrol: Model boş mu döndü?
+        if model is None:
+            st.sidebar.error("❌ joblib.load boş (None) döndü.")
             return None
+            
+        # 3. Kontrol: Model dict (sözlük) tipinde mi?
+        if not isinstance(model, dict):
+            st.sidebar.error(f"⚠️ Yapı Hatası: Model bir 'dict' (sözlük) değil! Yüklenen tip: {type(model)}")
+            return None
+            
+        # 4. Kontrol: İçinde 'xgb' anahtarı var mı?
+        if "xgb" not in model:
+            st.sidebar.error("⚠️ Yapı Hatası: Sözlük içinde 'xgb' anahtarı bulunamadı.")
+            return None
+            
         return model
-    except Exception:
+        
+    except Exception as e:
+        # 5. Kontrol: Kritik bir Python/Kütüphane hatası fırladı mı?
+        st.sidebar.error(f"💥 Kritik Yükleme Hatası: {str(e)}")
         return None
-
-
 
 # ==============================================================================
 # 🛠️ GÜVENLİK VE GECİCİ KORUMA MOTORLARI (EKSİK FONKSİYONLAR İÇİN)
