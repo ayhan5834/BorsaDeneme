@@ -6,6 +6,6 @@ matplotlib
 ta
 plotly
 streamlit-autorefresh
-xgboost==3.2.0
-scikit-learn==1.7.2
+scikit-learn
+xgboost
 lightgbm
