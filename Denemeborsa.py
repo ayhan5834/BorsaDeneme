@@ -2270,21 +2270,31 @@ if IS_STREAMLIT:
     """, unsafe_allow_html=True)
     
     with sekme2:
+        # 1. SESSION STATE BAŞLANGIÇ DEĞERLERİ
+        if "aktif_hisse" not in st.session_state:
+            st.session_state.aktif_hisse = ""
+            
+        # Geçici girdi takibi için (Autorefresh form sıfırlama koruması)
+        if "hisse_girdi_gecici" not in st.session_state:
+            st.session_state.hisse_girdi_gecici = ""
+
         # Otomatik yenileme motoru (60 saniye)
         st_autorefresh(interval=60000, key="refresh_sekme2")
 
-        if "aktif_hisse" not in st.session_state:
-            st.session_state.aktif_hisse = ""
-
         # =====================================================================
-        # 1. AKILLI ARAMA FORMU
+        # 1. AKILLI ARAMA FORMU (Geliştirilmiş & Yenileme Korumalı)
         # =====================================================================
         with st.form(key="hisse_arama_formu", clear_on_submit=True):
-            hisse_input = st.text_input("Hisse Senedi Kodu (Örn: THYAO, TUREX):")
+            hisse_input = st.text_input(
+                "Hisse Senedi Kodu (Örn: THYAO, TUREX):", 
+                value=st.session_state.hisse_girdi_gecici
+            )
             submit_button = st.form_submit_button("🔍 Analiz Et", use_container_width=False)
             
             if submit_button and hisse_input:
                 st.session_state.aktif_hisse = hisse_input.strip().upper()
+                st.session_state.hisse_girdi_gecici = "" # Başarılı gönderimde temizle
+                st.rerun() # Formun gönderildiğini anında algılaması için zorunlu tetikleme
 
         # =====================================================================
         # 2. ANA ÇALIŞMA BLOKU
@@ -2320,11 +2330,10 @@ if IS_STREAMLIT:
             if df_st is None or df_st.empty:
                 st.error(f"❌ {sembol} için veri çekilemedi. Lütfen kodu veya internet bağlantınızı kontrol edin.")
             else:
-                # 🛡️ GÜVENLİ MOBİL KALKAN: Model yüklenemezse sistemi kilitlemek yerine teknik moda geçir
+                # 🛡️ GÜVENLİ MOBİL KALKAN: Model yüklenemezse sistemi teknik moda geçir
                 if model_st is None:
                     st.sidebar.warning("📱 Cihaz RAM Koruması: Yapay Zeka Motoru kapatıldı, Teknik Analiz moduna geçildi.")
                     
-                    # Fiyat ve indikatörlerin son değerlerini güvenle alalım
                     fiyat_son = float(df_st["Close"].iloc[-1] if "Close" in df_st.columns else df_st["close"].iloc[-1])
                     rsi_son = float(df_st["rsi"].iloc[-1]) if "rsi" in df_st.columns else 50.0
                     adx_son = float(df_st["adx"].iloc[-1]) if "adx" in df_st.columns else 25.0
@@ -2350,7 +2359,7 @@ if IS_STREAMLIT:
                         "kalicilik_durumu": "Teknik Mod Aktif (Model Yok)",
                         "tepe_skoru": 0,
                         "signal": "İZLE (TEKNİK REJİM)",
-                        "color": "#607D8B",
+                        "color": "#37474F", # Sabit gri yerine varsayılan nötr ton atandı
                         "ai_comment": "⚠️ iPhone Safari bellek sınırı nedeniyle yapay zeka raporu bu cihazda devre dışı bırakıldı. Lütfen aşağıdaki teknik grafikleri ve canlı verileri referans alınız.",
                         "regime": "Teknik Takip / Veri Canlı",
                         "destek": float(df_st["Low"].min() if "Low" in df_st.columns else fiyat_son * 0.95),
@@ -2377,7 +2386,7 @@ if IS_STREAMLIT:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # 🌟 PERFORMANCE GUARD: Veri setini mobil/grafik performansı için kırpıyoruz
+                    # 🌟 PERFORMANCE GUARD
                     if df_st is not None and not df_st.empty:
                         df_chart_data = df_st.tail(60) if len(df_st) > 60 else df_st
                     else:
@@ -2448,8 +2457,8 @@ if IS_STREAMLIT:
                     # =============================================================
                     st.markdown("## 📊 Arz / Talep Analizi")
                     v_col1, v_col2, v_col3 = st.columns(3)
-                    v_col1.metric("Alım Hacmi", f"{safe_float(result.get('buy_volume'))/1e6:.1f}M ₺")
-                    v_col2.metric("Satım Hacmi", f"{safe_float(result.get('sell_volume'))/1e6:.1f}M ₺")
+                    v_col1.metric("Alım Hacmi", f"{safe_float(result.get('buy_volume'))/1e6:.1f}M Lot")
+                    v_col2.metric("Satım Hacmi", f"{safe_float(result.get('sell_volume'))/1e6:.1f}M Lot")
                     v_col3.metric("Flow Index", f"{safe_float(result.get('flow')):.3f}")
 
                     st.markdown("---")
@@ -2466,12 +2475,26 @@ if IS_STREAMLIT:
                     st.warning(f"Ana Strateji: {result.get('strategy_action', 'TUT')} | Pozisyon Yönetimi: {result.get('exit_strategy_action', 'TUT')}")
 
                     # =============================================================
-                    # SIGNAL BOX
+                    # 🚦 SIGNAL BOX (Dinamik Renkli Alarm Paneli)
                     # =============================================================
                     st.markdown("## 🚦 Sinyal")
+
+                    # Sinyal metnini alıp büyük harfe çevirelim
+                    sinyal_metni = result.get('signal', 'SİNYAL YOK').upper()
+
+                    # Sinyal metnindeki anahtar kelimelere göre rengi el ile zorunlu kılıyoruz
+                    if "AL" in sinyal_metni:
+                        box_color = "#2E7D32"  # Canlı Yeşil
+                    elif "SAT" in sinyal_metni or "UZAK DUR" in sinyal_metni or "BEKLE" in sinyal_metni:
+                        box_color = "#C62828"  # Canlı Kırmızı
+                    elif "TUT" in sinyal_metni or "İZLE" in sinyal_metni or "KORU" in sinyal_metni:
+                        box_color = "#EF6C00"  # Canlı Turuncu
+                    else:
+                        box_color = "#37474F"  # Tamamen tanımsız durumlarda Nötr Koyu Gri
+
                     st.markdown(f"""
-                    <div style="background:{result.get('color', '#333')}; padding:14px; border-radius:8px; text-align:center; font-size:24px; font-weight:800; color:white;">
-                        {result.get('signal', 'SİNYAL YOK')}
+                    <div style="background:{box_color}; padding:16px; border-radius:10px; text-align:center; font-size:24px; font-weight:800; color:white; box-shadow: 0px 4px 10px rgba(0,0,0,0.3);">
+                        {sinyal_metni}
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -2482,13 +2505,6 @@ if IS_STREAMLIT:
                     st.info(result.get('ai_comment', 'Yorum bulunamadı.'))
                     st.markdown(f"🎯 **Stratejik Aksiyon:** `{result.get('strategy_action', 'TUT')}`")
                     st.markdown("---")
-                    
-                    st.markdown("## 📌 Piyasa Rejimi")
-                    st.markdown(f"""
-                    🧭 **Rejim:** {result.get('regime', 'Bilinmiyor')}  
-                    📉 **Destek:** {safe_float(result.get('destek')):.2f}  
-                    📈 **Direnç:** {safe_float(result.get('direnc')):.2f}
-                    """)
                     
                     # =============================================================
                     # PLOTLY TEKNİK GRAFİK
@@ -2528,7 +2544,8 @@ if IS_STREAMLIT:
                             except (ValueError, TypeError):
                                 last_close_val = None
                                 
-                        if last_close_val is None or pd.isna(last_close_val):
+                        # Tip kontrolü ve None durumları için yerel güvence
+                        if last_close_val is None or str(last_close_val) == 'nan':
                             last_close_val = safe_float(result.get('price', 0.0))
                         st.write("LAST CLOSE:", f"{last_close_val:.2f} ₺")
 
