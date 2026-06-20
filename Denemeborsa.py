@@ -2314,14 +2314,56 @@ if IS_STREAMLIT:
                 if df_st is not None and not df_st.empty:
                     sembol = hisse_temiz
 
+            # Model yükleme denemesi
             model_st = load_model()
 
             if df_st is None or df_st.empty:
                 st.error(f"❌ {sembol} için veri çekilemedi. Lütfen kodu veya internet bağlantınızı kontrol edin.")
-            elif model_st is None:
-                st.error("❌ Yapay zeka modeli sistemden yüklenemedi.")
             else:
-                result = analyze(df_st, model_st, MODEL_FEATURES, symbol=hisse_temiz)
+                # 🛡️ GÜVENLİ MOBİL KALKAN: Model yüklenemezse sistemi kilitlemek yerine teknik moda geçir
+                if model_st is None:
+                    st.sidebar.warning("📱 Cihaz RAM Koruması: Yapay Zeka Motoru kapatıldı, Teknik Analiz moduna geçildi.")
+                    
+                    # Fiyat ve indikatörlerin son değerlerini güvenle alalım
+                    fiyat_son = float(df_st["Close"].iloc[-1] if "Close" in df_st.columns else df_st["close"].iloc[-1])
+                    rsi_son = float(df_st["rsi"].iloc[-1]) if "rsi" in df_st.columns else 50.0
+                    adx_son = float(df_st["adx"].iloc[-1]) if "adx" in df_st.columns else 25.0
+                    flow_son = float(df_st["flow"].iloc[-1]) if "flow" in df_st.columns else 0.0
+                    buy_v = float(df_st["buy_volume"].iloc[-1]) if "buy_volume" in df_st.columns else 0.0
+                    sell_v = float(df_st["sell_volume"].iloc[-1]) if "sell_volume" in df_st.columns else 0.0
+                    
+                    result = {
+                        "price": fiyat_son,
+                        "rsi": rsi_son,
+                        "adx": adx_son,
+                        "flow": flow_son,
+                        "buy_volume": buy_v,
+                        "sell_volume": sell_v,
+                        "buy_pressure": 0.5,
+                        "sell_pressure": 0.5,
+                        "smart_money": 50,
+                        "guven_skoru": 60,
+                        "rr": 1.5,
+                        "score": 0.50,
+                        "grade": "TEKNİK",
+                        "suni_kod": 0,
+                        "kalicilik_durumu": "Teknik Mod Aktif (Model Yok)",
+                        "tepe_skoru": 0,
+                        "signal": "İZLE (TEKNİK REJİM)",
+                        "color": "#607D8B",
+                        "ai_comment": "⚠️ iPhone Safari bellek sınırı nedeniyle yapay zeka raporu bu cihazda devre dışı bırakıldı. Lütfen aşağıdaki teknik grafikleri ve canlı verileri referans alınız.",
+                        "regime": "Teknik Takip / Veri Canlı",
+                        "destek": float(df_st["Low"].min() if "Low" in df_st.columns else fiyat_son * 0.95),
+                        "direnc": float(df_st["High"].max() if "High" in df_st.columns else fiyat_son * 1.05),
+                        "trend_text": "Grafikten Takip Edin",
+                        "stop_loss": fiyat_son * 0.95,
+                        "take_profit": fiyat_son * 1.10,
+                        "stock_score": 50,
+                        "trend_power": 50.0
+                    }
+                else:
+                    # Bilgisayarda veya güçlü ortamda normal yapay zeka analiz motorunu çalıştır
+                    result = analyze(df_st, model_st, MODEL_FEATURES, symbol=hisse_temiz)
                 
                 if not result:
                     st.warning("⚠️ Analiz motoru bu hisse için sonuç üretemedi.")
@@ -2336,13 +2378,12 @@ if IS_STREAMLIT:
                     """, unsafe_allow_html=True)
                     
                     # 🌟 PERFORMANCE GUARD: Veri setini mobil/grafik performansı için kırpıyoruz
-                    # iPhone ekranında zaten 60'tan fazla bar yan yana sığmaz, RAM'i korur.
                     if df_st is not None and not df_st.empty:
                         df_chart_data = df_st.tail(60) if len(df_st) > 60 else df_st
                     else:
                         df_chart_data = df_st
                     
-                    # Kalıcılık ve Tuzak Dedektörü (HTML hafifletildi)
+                    # Kalıcılık ve Tuzak Dedektörü
                     suni_kod = result.get("suni_kod", 0)
                     status_color = "#4CAF50" if suni_kod == 2 else ("#FF9800" if suni_kod in [1, -1] else "#90A4AE")
                     status_bg = "rgba(76, 175, 80, 0.05)" if suni_kod == 2 else ("rgba(255, 152, 0, 0.05)" if suni_kod in [1, -1] else "rgba(144, 164, 174, 0.05)")
@@ -2407,7 +2448,6 @@ if IS_STREAMLIT:
                     # =============================================================
                     st.markdown("## 📊 Arz / Talep Analizi")
                     v_col1, v_col2, v_col3 = st.columns(3)
-                    # Mobilde taşmayı ve UI sıkışmasını önlemek için Milyon ₺ formatına çektik
                     v_col1.metric("Alım Hacmi", f"{safe_float(result.get('buy_volume'))/1e6:.1f}M ₺")
                     v_col2.metric("Satım Hacmi", f"{safe_float(result.get('sell_volume'))/1e6:.1f}M ₺")
                     v_col3.metric("Flow Index", f"{safe_float(result.get('flow')):.3f}")
@@ -2451,18 +2491,16 @@ if IS_STREAMLIT:
                     """)
                     
                     # =============================================================
-                    # PLOTLY TEKNİK GRAFİK (DARBOĞAZ ÇÖZÜM NOKTASI)
+                    # PLOTLY TEKNİK GRAFİK
                     # =============================================================
                     st.markdown("## 📈 Teknik Grafik")
                     if df_chart_data is not None and not df_chart_data.empty:
-                        # Grafik çizimi için kırpılmış veriyi (df_chart_data) gönderiyoruz
                         fig = create_technical_chart(df_chart_data)
                         if fig:
-                            # iPhone Safari çökmesini önleyen özel Plotly konfigürasyonu
                             st.plotly_chart(fig, use_container_width=True, config={
-                                'displayModeBar': False,  # Ağır buton menüsünü gizler
+                                'displayModeBar': False,  
                                 'responsive': True,
-                                'scrollZoom': False       # Yanlışlıkla zoom ile kasmayı önler
+                                'scrollZoom': False       
                             })
                     else:
                         st.info("Grafik çizimi için veri yetersiz.")
