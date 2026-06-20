@@ -179,11 +179,11 @@ else:
         df = yf.download(symbol, period=period, interval=interval, auto_adjust=True)
         return _clean_yfinance_df(df)
 
-@st.cache_resource(show_spinner=False)
+# validate parametresi ile fonksiyon None dönerse bunu cache'e kaydetme diyoruz!
+@st.cache_resource(show_spinner=False, validate=lambda x: x is not None)
 def load_model() -> dict | None:
     # 1. Kontrol: Dosya diskte var mı?
     if not os.path.isfile(MODEL_PATH):
-        # Önce hatayı ekrana basıyoruz, sonra None dönüyoruz!
         st.sidebar.error(f"📁 Model dosyası bulunamadı! Aranan yol: {MODEL_PATH}")
         return None
         
